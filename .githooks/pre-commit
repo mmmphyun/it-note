@@ -1,0 +1,59 @@
+#!/bin/sh
+# It!note Hard Guard (pre-commit)
+# 목적: Private 개발 후 Public 전환 시 히스토리 오염 방지 및 아키텍처 불변성 강제
+
+set -e
+
+echo "[Hard Guard] Running pre-commit verification..."
+
+# 1. .env 파일 스테이징 원천 차단
+STAGED_ENV=$(git diff --cached --name-only | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$' || true)
+if [ -n "$STAGED_ENV" ]; then
+  echo "[BLOCKED] .env 파일은 절대 커밋할 수 없습니다: $STAGED_ENV"
+  exit 1
+fi
+
+# 2. Gitleaks 시크릿 및 엔트로피 스캔 (Staged 변경분 대상)
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --config .gitleaks.toml --verbose
+else
+  echo "[BLOCKED] gitleaks 바이너리가 설치되어 있지 않습니다. 시크릿 검사를 우회할 수 없습니다."
+  exit 1
+fi
+
+# 3. 원자적 커밋(Atomic Commit) 파일 개수 제한 (최대 10개)
+STAGED_COUNT=$(git diff --cached --name-only | wc -l | tr -d ' ')
+if [ "$STAGED_COUNT" -gt 10 ]; then
+  echo "[BLOCKED] 한 번에 너무 많은 파일($STAGED_COUNT개)이 스테이징되었습니다. 1-Task 1-Commit 원칙에 따라 10개 이하로 분할 커밋하십시오."
+  exit 1
+fi
+
+# 4. Zero-UI 아키텍처 불변성 검사 (src/components/canvas/ 내 금지된 UI 태그 차단)
+CANVAS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^src/components/canvas/.*\.(tsx|ts)$' || true)
+if [ -n "$CANVAS_FILES" ]; then
+  FORBIDDEN_UI=$(grep -En '<(header|footer|nav|button|input|select|textarea)\b' $CANVAS_FILES || true)
+  if [ -n "$FORBIDDEN_UI" ]; then
+    echo "[BLOCKED] Zero-UI 원칙 위반: src/components/canvas/ 내부에 일반 UI 컨트롤 태그(<header>, <footer>, <nav>, <button>, <input> 등)를 사용할 수 없습니다."
+    echo "$FORBIDDEN_UI"
+    exit 1
+  fi
+fi
+
+# 5. Stateless Zero-Retention 보안 검사 (api/ 내 파일시스템/디스크 영구 저장 차단)
+API_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^api/.*\.(ts|js)$' || true)
+if [ -n "$API_FILES" ]; then
+  FORBIDDEN_STORAGE=$(grep -En '\b(writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|indexedDB|localStorage)\b' $API_FILES || true)
+  if [ -n "$FORBIDDEN_STORAGE" ]; then
+    echo "[BLOCKED] Zero-Retention 원칙 위반: api/ 프록시 서버 코드에서 디스크 파일 쓰기 또는 영구 스토리지 호출이 감지되었습니다."
+    echo "$FORBIDDEN_STORAGE"
+    exit 1
+  fi
+fi
+
+# 6. TypeScript 타입 무결성 검사 (tsconfig.json 존재 시)
+if [ -f "tsconfig.json" ] && [ -d "node_modules" ]; then
+  echo "[Hard Guard] Running TypeScript typecheck (tsc --noEmit)..."
+  npx tsc --noEmit
+fi
+
+echo "[Hard Guard] All checks passed."

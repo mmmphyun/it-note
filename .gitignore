@@ -1,0 +1,24 @@
+# Environment & Secrets (NEVER COMMIT)
+.env
+.env.*
+!.env.example
+
+# Dependencies & Build
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Ephemeral Canvas Snapshots & Debug Artifacts
+*.snap.png
+*.crop.png
+tmp/
+scratch/
+
+# IDE & OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.log

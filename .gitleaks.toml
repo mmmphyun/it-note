@@ -1,0 +1,29 @@
+title = "It!note Gitleaks Configuration (Stealth-to-Public Guard)"
+
+[extend]
+# 내장된 표준 시크릿 탐지 규칙(AWS, GCP, GitHub, OpenAI, Private Keys 등) 전체 상속
+useDefault = true
+
+[[rules]]
+id = "typesafe-jev-api-key"
+description = "TypeSafe AI Jev API Key"
+regex = '''(?i)(?:jev|typesafe)[_-]?(?:api[_-]?)?key['"\s:=]+([a-zA-Z0-9_\-]{20,})|(\bjev_[a-zA-Z0-9]{24,}\b)'''
+tags = ["key", "jev", "typesafe"]
+
+[[rules]]
+id = "google-gemini-api-key"
+description = "Google Gemini API Key"
+regex = '''\bAIza[0-9A-Za-z\-_]{35}\b'''
+tags = ["key", "gemini", "google"]
+
+[[rules]]
+id = "openrouter-api-key"
+description = "OpenRouter API Key"
+regex = '''\bsk-or-v1-[a-f0-9]{64}\b'''
+tags = ["key", "openrouter"]
+
+[allowlist]
+description = "Allow example env templates"
+paths = [
+  '''^\.env\.example$'''
+]
