@@ -1,7 +1,7 @@
 title = "It!note Gitleaks Configuration (Stealth-to-Public Guard)"
 
 [extend]
-# 내장된 표준 시크릿 탐지 규칙(AWS, GCP, GitHub, OpenAI, Private Keys 등) 전체 상속
+# 내장된 표준 시크릿 탐지 규칙(AWS, GCP, GitHub, OAuth Client Secret, Private Keys 등) 전체 상속
 useDefault = true
 
 [[rules]]
@@ -17,10 +17,10 @@ regex = '''\bAIza[0-9A-Za-z\-_]{35}\b'''
 tags = ["key", "gemini", "google"]
 
 [[rules]]
-id = "openrouter-api-key"
-description = "OpenRouter API Key"
-regex = '''\bsk-or-v1-[a-f0-9]{64}\b'''
-tags = ["key", "openrouter"]
+id = "payment-gateway-secret-key"
+description = "PG (TossPayments / PortOne) Secret Key"
+regex = '''\b(test_sk_|live_sk_| test_gsk_|live_gsk_)[0-9a-zA-Z]{20,}\b'''
+tags = ["key", "pg", "payment"]
 
 [allowlist]
 description = "Allow example env templates"

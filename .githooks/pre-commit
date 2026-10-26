@@ -40,13 +40,13 @@ if [ -n "$CANVAS_FILES" ]; then
   fi
 fi
 
-# 5. Stateless Zero-Retention 보안 검사 (backend Hono 서버 내 파일시스템/디스크 영구 저장 차단)
+# 5. 원본 필기 이미지 디스크 저장 차단 (서버 로컬 파일시스템 덤프 금지)
 API_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(apps/server|backend)/src/.*\.(ts|js)$' || true)
 if [ -n "$API_FILES" ]; then
-  FORBIDDEN_STORAGE=$(grep -En '\b(writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|indexedDB|localStorage|sqlite|prisma| drizzle)\b' $API_FILES || true)
-  if [ -n "$FORBIDDEN_STORAGE" ]; then
-    echo "[BLOCKED] Zero-Retention 원칙 위반: 백엔드 프록시 서버 코드에서 디스크 파일 쓰기 또는 영구 DB 스토리지 호출이 감지되었습니다."
-    echo "$FORBIDDEN_STORAGE"
+  FORBIDDEN_FS=$(grep -En '\b(writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream)\b' $API_FILES || true)
+  if [ -n "$FORBIDDEN_FS" ]; then
+    echo "[BLOCKED] 보안 원칙 위반: 백엔드 서버에서 사용자의 원본 필기 이미지를 로컬 디스크 파일(writeFile 등)로 저장할 수 없습니다."
+    echo "$FORBIDDEN_FS"
     exit 1
   fi
 fi
