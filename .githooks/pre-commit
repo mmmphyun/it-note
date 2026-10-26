@@ -1,5 +1,6 @@
 #!/bin/sh
 # It!note Hard Guard (pre-commit)
+# 스택: TypeScript Monorepo (Svelte 5 Frontend + Hono Backend)
 # 목적: Private 개발 후 Public 전환 시 히스토리 오염 방지 및 아키텍처 불변성 강제
 
 set -e
@@ -28,32 +29,32 @@ if [ "$STAGED_COUNT" -gt 10 ]; then
   exit 1
 fi
 
-# 4. Zero-UI 아키텍처 불변성 검사 (src/components/canvas/ 내 금지된 UI 태그 차단)
-CANVAS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^src/components/canvas/.*\.(tsx|ts)$' || true)
+# 4. Zero-UI 아키텍처 불변성 검사 (frontend 캔버스 컴포넌트 내 금지된 UI 태그 차단)
+CANVAS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(apps/web|frontend)/src/lib/canvas/.*\.(svelte|ts)$' || true)
 if [ -n "$CANVAS_FILES" ]; then
   FORBIDDEN_UI=$(grep -En '<(header|footer|nav|button|input|select|textarea)\b' $CANVAS_FILES || true)
   if [ -n "$FORBIDDEN_UI" ]; then
-    echo "[BLOCKED] Zero-UI 원칙 위반: src/components/canvas/ 내부에 일반 UI 컨트롤 태그(<header>, <footer>, <nav>, <button>, <input> 등)를 사용할 수 없습니다."
+    echo "[BLOCKED] Zero-UI 원칙 위반: 캔버스 컴포넌트 내부에 일반 UI 컨트롤 태그(<header>, <footer>, <nav>, <button>, <input> 등)를 사용할 수 없습니다."
     echo "$FORBIDDEN_UI"
     exit 1
   fi
 fi
 
-# 5. Stateless Zero-Retention 보안 검사 (api/ 내 파일시스템/디스크 영구 저장 차단)
-API_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^api/.*\.(ts|js)$' || true)
+# 5. Stateless Zero-Retention 보안 검사 (backend Hono 서버 내 파일시스템/디스크 영구 저장 차단)
+API_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(apps/server|backend)/src/.*\.(ts|js)$' || true)
 if [ -n "$API_FILES" ]; then
-  FORBIDDEN_STORAGE=$(grep -En '\b(writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|indexedDB|localStorage)\b' $API_FILES || true)
+  FORBIDDEN_STORAGE=$(grep -En '\b(writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|indexedDB|localStorage|sqlite|prisma| drizzle)\b' $API_FILES || true)
   if [ -n "$FORBIDDEN_STORAGE" ]; then
-    echo "[BLOCKED] Zero-Retention 원칙 위반: api/ 프록시 서버 코드에서 디스크 파일 쓰기 또는 영구 스토리지 호출이 감지되었습니다."
+    echo "[BLOCKED] Zero-Retention 원칙 위반: 백엔드 프록시 서버 코드에서 디스크 파일 쓰기 또는 영구 DB 스토리지 호출이 감지되었습니다."
     echo "$FORBIDDEN_STORAGE"
     exit 1
   fi
 fi
 
-# 6. TypeScript 타입 무결성 검사 (tsconfig.json 존재 시)
-if [ -f "tsconfig.json" ] && [ -d "node_modules" ]; then
-  echo "[Hard Guard] Running TypeScript typecheck (tsc --noEmit)..."
-  npx tsc --noEmit
+# 6. TypeScript / Svelte 타입 무결성 검사 (루트 package.json 및 node_modules 존재 시)
+if [ -f "package.json" ] && [ -d "node_modules" ]; then
+  echo "[Hard Guard] Running workspace typecheck..."
+  npm run check --if-present
 fi
 
 echo "[Hard Guard] All checks passed."
