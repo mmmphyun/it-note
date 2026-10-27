@@ -118,7 +118,7 @@ export class CanvasLifecycleEngine {
     const hypothesis: AiHypothesis = {
       id: `hypo-${now}`,
       sentence,
-      bbox: [Math.min(1900, bbox[2] + 40), bbox[1], 480, 80],
+      bbox: [Math.min(1800, bbox[2] + 40), bbox[1], 540, 95],
       createdAt: now,
       isConfirmed: false,
       isRejected: false,

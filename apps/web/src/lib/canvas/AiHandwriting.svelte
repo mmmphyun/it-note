@@ -21,52 +21,38 @@
   let containerEl = $state<HTMLDivElement | null>(null);
   let engine = $state<TegakiEngine | null>(null);
 
-  // KCC 순차 대필 애니메이션 상태
-  let fontMode = $state<'kcc' | 'nanum'>('kcc');
-  let kccVisibleLength = $state(0);
-  let kccTimer: ReturnType<typeof setTimeout> | null = null;
-
   $effect(() => {
-    // 로컬스토리지 폰트 설정 조회 (기본값: KCC방정환체)
-    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('itnote_font_preference') : null;
-    fontMode = saved === 'nanum' ? 'nanum' : 'kcc';
+    if (!containerEl) return;
 
-    if (fontMode === 'kcc') {
-      // KCC방정환체 순차 대필 애니메이션
-      if (kccTimer) clearTimeout(kccTimer);
-      kccVisibleLength = 0;
+    // 이전 엔진 정리 및 컨테이너 비우기
+    engine?.destroy();
+    containerEl.innerHTML = '';
 
-      function step() {
-        if (kccVisibleLength < sentence.length) {
-          kccVisibleLength++;
-          kccTimer = setTimeout(step, 65);
-        } else {
+    try {
+      // 나눔손글씨 펜체 고속 자연 필기 타이밍 (기본 37초 -> 약 2.5초로 15배 쾌속 재생)
+      engine = new TegakiEngine(containerEl, {
+        text: sentence,
+        font: nanumFont,
+        timing: {
+          glyphGap: 0.02,
+          wordGap: 0.04,
+          lineGap: 0.06,
+          unknownDuration: 0.05,
+          stagger: {
+            advance: '45%',
+            duration: 0.09,
+          },
+        },
+        onComplete: () => {
           onComplete?.();
-        }
-      }
-      step();
-    } else {
-      // tegaki 나눔손글씨 획순 렌더러
-      if (!containerEl) return;
-      engine?.destroy();
-      containerEl.innerHTML = '';
-
-      try {
-        engine = new TegakiEngine(containerEl, {
-          text: sentence,
-          font: nanumFont,
-          onComplete: () => {
-            onComplete?.();
-          }
-        });
-      } catch {
-        if (containerEl) containerEl.textContent = sentence;
-        onComplete?.();
-      }
+        },
+      });
+    } catch {
+      if (containerEl) containerEl.textContent = sentence;
+      onComplete?.();
     }
 
     return () => {
-      if (kccTimer) clearTimeout(kccTimer);
       engine?.destroy();
       engine = null;
     };
@@ -79,23 +65,17 @@
   class:smoke-out={isRejected}
   style="left: {bbox[0]}px; top: {bbox[1]}px; width: {bbox[2]}px; min-height: {bbox[3]}px;"
 >
-  {#if fontMode === 'kcc'}
-    <div class="kcc-container">
-      {sentence.slice(0, kccVisibleLength)}
-    </div>
-  {:else}
-    <div bind:this={containerEl} class="tegaki-container"></div>
-  {/if}
+  <div bind:this={containerEl} class="tegaki-container"></div>
 </div>
 
 <style>
   .ai-sentence-box {
     position: absolute;
-    padding: 12px 18px;
-    border-radius: 6px;
-    background: rgba(250, 248, 245, 0.85);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    border: 1px dashed rgba(160, 150, 140, 0.3);
+    padding: 14px 20px;
+    border-radius: 8px;
+    background: rgba(250, 248, 245, 0.9);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    border: 1px dashed rgba(160, 150, 140, 0.35);
     pointer-events: none;
     transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
                 opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -103,19 +83,11 @@
     z-index: 10;
   }
 
-  .kcc-container {
-    font-family: 'KCCBangJeonghwan', cursive, sans-serif;
-    font-size: 25px;
-    line-height: 1.4;
-    color: #242424;
-    word-break: keep-all;
-  }
-
   .tegaki-container {
     font-family: 'Nanum Pen Script', cursive, sans-serif;
-    font-size: 24px;
-    line-height: 1.4;
-    color: #2b2b2b;
+    font-size: 32px;
+    line-height: 1.5;
+    color: #1e1e1e;
     word-break: keep-all;
   }
 
