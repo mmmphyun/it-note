@@ -13,6 +13,9 @@ dist-ssr/
 # Ephemeral Canvas Snapshots & Debug Artifacts
 *.snap.png
 *.crop.png
+HANDOVER.md
+.session-memory/
+.session-sync.json
 tmp/
 scratch/
 
