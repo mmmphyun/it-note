@@ -144,6 +144,7 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
       });
     }
     engine.pointerUp(3000);
+    engine.tick(3800); // 700ms 유예 시간 경과 후 최종 판정
 
     // 흡수(isConfirmed = true) 상태 전이 및 확정 노트 목록 보존 확인
     expect(engine.activeHypothesis!.isConfirmed).toBe(true);
@@ -175,6 +176,7 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     engine.pointerMove({ x: 300, y: 240, t: 2100 });
     engine.pointerMove({ x: 420, y: 240, t: 2200 });
     engine.pointerUp(2300);
+    engine.tick(3100); // 700ms 유예 시간 경과 후 최종 판정
 
     // 기각 및 새 문장 교체 확인
     expect(rejectedCount).toBe(1);
@@ -244,7 +246,12 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     engine.pointerMove({ x: 360, y: 220, t: 2250 });
     engine.pointerUp(2300);
 
-    // 2획 교차로 X 인식 및 기각 확인
+    // 2번째 획 직후(200ms 경과): 아직 유예 시간(700ms) 미만이므로 성급하게 판정하지 않고 대기
+    engine.tick(2500);
+    expect(rejectedCount).toBe(0);
+
+    // 700ms 유예 시간 경과(3100ms 시점): 사용자 입력이 멈춘 것을 감지하고 비로소 최종 X 기각 판정!
+    engine.tick(3100);
     expect(rejectedCount).toBe(1);
     expect(engine.strokes.length).toBe(0); // 일반 필기 증발로 잘못 전이되지 않음
   });

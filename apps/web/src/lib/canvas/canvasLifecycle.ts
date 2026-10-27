@@ -114,8 +114,10 @@ export class CanvasLifecycleEngine {
   callbacks: CanvasLifecycleCallbacks;
   currentViewport: ViewportBounds = { scrollX: 0, scrollY: 0, width: 1200, height: 800 };
 
-  // AI 문장 위 O/X 마킹 누적 버퍼 (다중 획 교차 인식 및 오인식 무한 재작성 원천 차단)
+  // AI 문장 위 O/X 마킹 누적 버퍼 및 입력 멈춤 감지 유예 타이머 (다중 획 및 단어 인식 지원)
   hypothesisGestureStrokes: Point[][] = [];
+  lastGesturePointerUpTime: number | null = null;
+  gestureIdleGraceMs: number = 700;
 
   private mockSentenceIndex = 0;
   private mockSentences = [
@@ -130,8 +132,9 @@ export class CanvasLifecycleEngine {
   }
 
   pointerDown(point: StrokePoint): void {
-    // 추가 펜 입력 시 30초 대기 타이머 즉시 리셋
+    // 추가 펜 입력 시 30초 대기 타이머 및 제스처 유예 타이머 리셋
     this.lastPointerUpTime = null;
+    this.lastGesturePointerUpTime = null;
 
     this.currentStroke = {
       id: `stroke-${point.t}`,
@@ -147,10 +150,44 @@ export class CanvasLifecycleEngine {
     this.currentStroke.endTime = point.t;
   }
 
+  private executeHypothesisAction(gesture: 'O' | 'X', now: number): void {
+    if (!this.activeHypothesis) return;
+
+    if (gesture === 'O') {
+      this.activeHypothesis.isConfirmed = true;
+      this.hypothesisGestureStrokes = [];
+      this.lastGesturePointerUpTime = null;
+      const confirmed: ConfirmedNote = {
+        id: `confirmed-${now}`,
+        sentence: this.activeHypothesis.sentence,
+        confirmedAt: now,
+        keywords: ['Svelte 5', 'Hono', 'Zero-UI'],
+        sourceBBox: this.activeHypothesis.bbox,
+      };
+      this.confirmedNotes.push(confirmed);
+      this.callbacks.onHypothesisConfirmed?.(confirmed);
+      return;
+    }
+
+    if (gesture === 'X') {
+      this.activeHypothesis.isRejected = true;
+      this.hypothesisGestureStrokes = [];
+      this.lastGesturePointerUpTime = null;
+      this.rejectedHypotheses.push(this.activeHypothesis.sentence);
+      this.callbacks.onHypothesisRejected?.(this.activeHypothesis);
+
+      // 다음 대안 문장 생성
+      const prevBbox = this.activeHypothesis.bbox;
+      this.mockSentenceIndex++;
+      this.spawnHypothesis(prevBbox, now);
+      return;
+    }
+  }
+
   pointerUp(now: number): void {
     if (!this.currentStroke) return;
 
-    // AI 문장 위 O/X 마킹 판정
+    // AI 문장 위 O/X 마킹 및 다양한 다중 획 의사표현 수집
     if (this.activeHypothesis && !this.activeHypothesis.isConfirmed && !this.activeHypothesis.isRejected) {
       const points: Point[] = this.currentStroke.points.map((p) => ({ x: p.x, y: p.y }));
       const [bx, by, bw, bh] = this.activeHypothesis.bbox;
@@ -161,42 +198,9 @@ export class CanvasLifecycleEngine {
 
       if (isNear) {
         this.hypothesisGestureStrokes.push(points);
-        const gesture = recognizeOxGesture(this.hypothesisGestureStrokes, this.activeHypothesis.bbox);
 
-        if (gesture === 'O') {
-          this.activeHypothesis.isConfirmed = true;
-          this.hypothesisGestureStrokes = [];
-          const confirmed: ConfirmedNote = {
-            id: `confirmed-${now}`,
-            sentence: this.activeHypothesis.sentence,
-            confirmedAt: now,
-            keywords: ['Svelte 5', 'Hono', 'Zero-UI'],
-            sourceBBox: this.activeHypothesis.bbox,
-          };
-          this.confirmedNotes.push(confirmed);
-          this.callbacks.onHypothesisConfirmed?.(confirmed);
-          this.currentStroke = null;
-          return;
-        }
-
-        if (gesture === 'X') {
-          this.activeHypothesis.isRejected = true;
-          this.hypothesisGestureStrokes = [];
-          this.rejectedHypotheses.push(this.activeHypothesis.sentence);
-          this.callbacks.onHypothesisRejected?.(this.activeHypothesis);
-
-          // 다음 대안 문장 생성
-          const prevBbox = this.activeHypothesis.bbox;
-          this.mockSentenceIndex++;
-          this.spawnHypothesis(prevBbox, now);
-          this.currentStroke = null;
-          return;
-        }
-
-        // 제스처 판정 대기 중(예: X의 1번째 획): 일반 필기 획에 넣지 않고 보류하여 불필요한 재작성 루프 차단
-        if (this.hypothesisGestureStrokes.length > 3) {
-          this.hypothesisGestureStrokes = [];
-        }
+        // 사용자 입력 멈춤 감지를 위한 700ms 유예 타이머 시작 (다중 획 X, '응', '맞아', '아니' 등)
+        this.lastGesturePointerUpTime = now;
         this.currentStroke = null;
         return;
       }
@@ -208,6 +212,29 @@ export class CanvasLifecycleEngine {
   }
 
   tick(now: number): DecayState {
+    // 1. AI 문장 제스처/단어 다중 획 입력 유예 타이머 평가 (사용자 입력이 멈춘 후 최종 판정)
+    if (
+      this.lastGesturePointerUpTime !== null &&
+      this.hypothesisGestureStrokes.length > 0 &&
+      this.activeHypothesis &&
+      !this.activeHypothesis.isConfirmed &&
+      !this.activeHypothesis.isRejected
+    ) {
+      const elapsedGesture = now - this.lastGesturePointerUpTime;
+      if (elapsedGesture >= this.gestureIdleGraceMs) {
+        this.lastGesturePointerUpTime = null;
+        const gesture = recognizeOxGesture(this.hypothesisGestureStrokes, this.activeHypothesis.bbox);
+
+        if (gesture === 'O' || gesture === 'X') {
+          this.executeHypothesisAction(gesture, now);
+        } else {
+          // 제스처가 아닌 경우: 마일스톤 2 의도 분류기(HTR) 대상
+          this.hypothesisGestureStrokes = [];
+        }
+      }
+    }
+
+    // 2. 일반 메모 잉크 증발 타이머
     if (this.lastPointerUpTime === null || this.strokes.length === 0 || this.currentStroke !== null) {
       return { opacity: 1, isEvaporated: false, phase: 'idle' };
     }
