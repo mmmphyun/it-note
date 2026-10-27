@@ -1,0 +1,19 @@
+{
+  "name": "itnote-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run --workspace=apps/web dev",
+    "build": "npm run --workspaces --if-present build",
+    "check": "npm run --workspaces --if-present check",
+    "test": "vitest --passWithNoTests"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
