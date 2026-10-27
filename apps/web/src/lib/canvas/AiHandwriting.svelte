@@ -124,7 +124,13 @@
 </div>
 
 <style>
-  /* 점선·테두리·배경을 일절 배제한 순수 필기 영역 */
+  /* 점선·테두리·배경을 일절 배제한 순수 필기 영역 (마우스 이벤트 관통 보장) */
+  .ai-sentence-box,
+  .ai-sentence-box * {
+    pointer-events: none !important;
+    user-select: none !important;
+  }
+
   .ai-sentence-box {
     position: absolute;
     padding: 0;
@@ -132,7 +138,6 @@
     background: transparent;
     border: none;
     box-shadow: none;
-    pointer-events: none;
     transform: rotate(var(--tilt, 0deg));
     transform-origin: top left;
     transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),

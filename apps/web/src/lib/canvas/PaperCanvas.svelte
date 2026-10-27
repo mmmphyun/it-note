@@ -49,6 +49,7 @@
   let lastRenderedOpacity = -1;
   let lastRenderedStrokeCount = -1;
   let lastHasCurrentStroke = false;
+  let lastRenderedGestureCount = 0;
 
   function renderStrokes(currentOpacity = 1.0) {
     if (!ctx || !canvasEl || !engine) return;
@@ -81,9 +82,19 @@
     ctx.globalAlpha = currentOpacity;
     ctx.fillStyle = '#1e1e1e';
 
-    const allStrokes = engine.currentStroke
-      ? [...engine.strokes, engine.currentStroke]
-      : engine.strokes;
+    // 일반 필기 획 + AI 문장 O/X 마킹 중인 제스처 획 + 현재 드로잉 중인 획
+    const gestureStrokes = engine.hypothesisGestureStrokes.map((pts, i) => ({
+      id: `gesture-${i}`,
+      points: pts.map((p) => ({ x: p.x, y: p.y, t: 0, pressure: 0.6 })),
+      startTime: 0,
+      endTime: 0,
+    }));
+
+    const allStrokes = [
+      ...engine.strokes,
+      ...gestureStrokes,
+      ...(engine.currentStroke ? [engine.currentStroke] : []),
+    ];
 
     for (const stroke of allStrokes) {
       const points = stroke.points.map((p) => [p.x, p.y, p.pressure ?? 0.5]);
@@ -110,18 +121,23 @@
   function tick() {
     if (engine) {
       const decay = engine.tick(performance.now());
-      // 매 프레임 불필요한 activeHypothesis 재대입 제거 (무한 반응형 루프 방지)
       const hasCurrent = engine.currentStroke !== null;
       const strokeCount = engine.strokes.length;
+      const gestureCount = engine.hypothesisGestureStrokes.length;
+
+      // 선을 긋고 있는 도중(hasCurrent)이거나 상태 변화 시 매 프레임 실시간 리드로잉
       if (
+        hasCurrent ||
+        lastHasCurrentStroke ||
         decay.opacity !== lastRenderedOpacity ||
         strokeCount !== lastRenderedStrokeCount ||
-        hasCurrent !== lastHasCurrentStroke
+        gestureCount !== lastRenderedGestureCount
       ) {
         renderStrokes(decay.opacity);
         lastRenderedOpacity = decay.opacity;
         lastRenderedStrokeCount = strokeCount;
         lastHasCurrentStroke = hasCurrent;
+        lastRenderedGestureCount = gestureCount;
       }
     }
     animationFrameId = requestAnimationFrame(tick);
@@ -185,6 +201,10 @@
       tiltY: e.tiltY,
     };
 
+    try {
+      (e.target as HTMLElement)?.setPointerCapture?.(e.pointerId);
+    } catch {}
+
     engine.pointerDown(point);
   }
 
@@ -236,6 +256,10 @@
         isPanning = false;
       }
     }
+
+    try {
+      (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
+    } catch {}
 
     engine.pointerUp(performance.now());
     activeHypothesis = engine.activeHypothesis;
