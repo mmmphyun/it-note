@@ -211,7 +211,10 @@
   }
 
   onMount(() => {
-    const isFast = new URLSearchParams(window.location.search).get('fast') === '1';
+    const fastParam = new URLSearchParams(window.location.search).get('fast');
+    let speedMode: 'normal' | 'fast' | 'instant' = 'normal';
+    if (fastParam === '0') speedMode = 'instant';
+    else if (fastParam === '1') speedMode = 'fast';
 
     engine = new CanvasLifecycleEngine(
       {
@@ -233,7 +236,7 @@
           }, 700);
         },
       },
-      isFast
+      speedMode
     );
 
     if (canvasEl) {

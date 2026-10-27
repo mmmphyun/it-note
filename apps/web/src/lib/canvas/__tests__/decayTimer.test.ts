@@ -73,4 +73,24 @@ describe('decayTimer - 30초 대기 + 60초 증발 상태 머신', () => {
     expect(evaporated.isEvaporated).toBe(true);
     expect(evaporated.phase).toBe('evaporated');
   });
+
+  it('즉시 디버그 모드 (?fast=0 / instant): 0.2초 대기 후 0.4초 만에 즉시 증발해야 한다', () => {
+    // 0 ~ 0.2초 대기
+    expect(calculateDecayState(100, 'instant')).toEqual({
+      opacity: 1,
+      isEvaporated: false,
+      phase: 'idle',
+    });
+
+    // 0.4초 시점: 진행 중
+    const midFade = calculateDecayState(400, 'instant');
+    expect(midFade.phase).toBe('fading');
+    expect(midFade.opacity).toBeCloseTo(0.5, 5);
+
+    // 0.6초 이상: 즉시 완전 증발
+    const evaporated = calculateDecayState(600, 'instant');
+    expect(evaporated.opacity).toBe(0);
+    expect(evaporated.isEvaporated).toBe(true);
+    expect(evaporated.phase).toBe('evaporated');
+  });
 });

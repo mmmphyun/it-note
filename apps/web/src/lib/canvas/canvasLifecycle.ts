@@ -1,5 +1,5 @@
 import type { Stroke, StrokePoint, AiHypothesis, ConfirmedNote } from '@itnote/shared';
-import { calculateDecayState, type DecayState } from './decayTimer';
+import { calculateDecayState, type DecayState, type SpeedMode } from './decayTimer';
 import { extractCroppedStrokes, type CroppedImageResult } from './cropExtractor';
 import { recognizeOxGesture, type Point } from './gestureRecognizer';
 
@@ -17,7 +17,7 @@ export class CanvasLifecycleEngine {
   activeHypothesis: AiHypothesis | null = null;
   confirmedNotes: ConfirmedNote[] = [];
   rejectedHypotheses: string[] = [];
-  isFastMode = false;
+  speedMode: SpeedMode = 'normal';
   callbacks: CanvasLifecycleCallbacks;
 
   private mockSentenceIndex = 0;
@@ -27,9 +27,9 @@ export class CanvasLifecycleEngine {
     '취소선으로 기각된 가설을 배제하고 클라우드 보안 자동화 루틴을 설계하려는 맥락인가요?',
   ];
 
-  constructor(callbacks: CanvasLifecycleCallbacks = {}, isFastMode = false) {
+  constructor(callbacks: CanvasLifecycleCallbacks = {}, speedMode: boolean | SpeedMode = 'normal') {
     this.callbacks = callbacks;
-    this.isFastMode = isFastMode;
+    this.speedMode = typeof speedMode === 'boolean' ? (speedMode ? 'fast' : 'normal') : speedMode;
   }
 
   pointerDown(point: StrokePoint): void {
@@ -98,7 +98,7 @@ export class CanvasLifecycleEngine {
     }
 
     const elapsed = now - this.lastPointerUpTime;
-    const decay = calculateDecayState(elapsed, this.isFastMode);
+    const decay = calculateDecayState(elapsed, this.speedMode);
 
     if (decay.isEvaporated) {
       const cropped = extractCroppedStrokes(this.strokes);

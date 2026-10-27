@@ -2,6 +2,7 @@
  * 잉크 증발(Decay) 타이머 계산 모듈
  * 기본: 30초 대기(유휴) 후 60초간 선형 투명화 (총 90초)
  * fast 모드 (?fast=1): 3초 대기 후 5초간 선형 투명화 (총 8초)
+ * instant 모드 (?fast=0): 0.2초 대기 후 0.4초간 즉시 증발 (총 0.6초) - 개발자 테스트용
  */
 
 export interface DecayConfig {
@@ -19,6 +20,13 @@ export const FAST_DECAY: DecayConfig = {
   fadeMs: 5000,
 };
 
+export const INSTANT_DECAY: DecayConfig = {
+  idleMs: 200,
+  fadeMs: 400,
+};
+
+export type SpeedMode = 'normal' | 'fast' | 'instant';
+
 export interface DecayState {
   opacity: number;
   isEvaporated: boolean;
@@ -27,9 +35,15 @@ export interface DecayState {
 
 export function calculateDecayState(
   elapsedMs: number,
-  isFast = false
+  mode: boolean | SpeedMode = false
 ): DecayState {
-  const config = isFast ? FAST_DECAY : NORMAL_DECAY;
+  let config = NORMAL_DECAY;
+  if (mode === true || mode === 'fast') {
+    config = FAST_DECAY;
+  } else if (mode === 'instant') {
+    config = INSTANT_DECAY;
+  }
+
   const totalMs = config.idleMs + config.fadeMs;
 
   if (elapsedMs < 0) {

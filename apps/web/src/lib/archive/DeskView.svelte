@@ -15,9 +15,12 @@
       <h1>잇적 데스크 (보관함 및 맥락 관리)</h1>
       <p class="subtitle">종이 속으로 흡수(Sink-in)된 확정 생각과 진화 맥락</p>
     </div>
-    <button class="back-button" onclick={onBackToCanvas}>
-      캔버스로 돌아가기
-    </button>
+    <div class="actions">
+      <a href="/font-test" class="dev-link">폰트 테스트 룸</a>
+      <button class="back-button" onclick={onBackToCanvas}>
+        캔버스로 돌아가기
+      </button>
+    </div>
   </header>
 
   <main class="desk-content">
@@ -88,6 +91,27 @@
     font-size: 13px;
     color: #777;
     margin-top: 4px;
+  }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .dev-link {
+    font-size: 13px;
+    color: #4a6fa5;
+    text-decoration: none;
+    padding: 8px 14px;
+    border: 1px solid #c9d6e5;
+    border-radius: 6px;
+    background: #f4f8fc;
+    transition: all 0.2s;
+  }
+
+  .dev-link:hover {
+    background: #e5eff9;
   }
 
   .back-button {

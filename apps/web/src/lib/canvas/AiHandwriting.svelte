@@ -21,30 +21,52 @@
   let containerEl = $state<HTMLDivElement | null>(null);
   let engine = $state<TegakiEngine | null>(null);
 
+  // KCC 순차 대필 애니메이션 상태
+  let fontMode = $state<'kcc' | 'nanum'>('kcc');
+  let kccVisibleLength = $state(0);
+  let kccTimer: ReturnType<typeof setTimeout> | null = null;
+
   $effect(() => {
-    if (!containerEl) return;
+    // 로컬스토리지 폰트 설정 조회 (기본값: KCC방정환체)
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('itnote_font_preference') : null;
+    fontMode = saved === 'nanum' ? 'nanum' : 'kcc';
 
-    // 이전 엔진 정리 및 컨테이너 비우기 (중복 텍스트 방지)
-    engine?.destroy();
-    containerEl.innerHTML = '';
+    if (fontMode === 'kcc') {
+      // KCC방정환체 순차 대필 애니메이션
+      if (kccTimer) clearTimeout(kccTimer);
+      kccVisibleLength = 0;
 
-    try {
-      engine = new TegakiEngine(containerEl, {
-        text: sentence,
-        font: nanumFont,
-        onComplete: () => {
+      function step() {
+        if (kccVisibleLength < sentence.length) {
+          kccVisibleLength++;
+          kccTimer = setTimeout(step, 65);
+        } else {
           onComplete?.();
         }
-      });
-    } catch {
-      // 폰트 번들 누락 글자 발생 시 CSS Nanum Pen Script 렌더링 폴백
-      if (containerEl) {
-        containerEl.textContent = sentence;
       }
-      onComplete?.();
+      step();
+    } else {
+      // tegaki 나눔손글씨 획순 렌더러
+      if (!containerEl) return;
+      engine?.destroy();
+      containerEl.innerHTML = '';
+
+      try {
+        engine = new TegakiEngine(containerEl, {
+          text: sentence,
+          font: nanumFont,
+          onComplete: () => {
+            onComplete?.();
+          }
+        });
+      } catch {
+        if (containerEl) containerEl.textContent = sentence;
+        onComplete?.();
+      }
     }
 
     return () => {
+      if (kccTimer) clearTimeout(kccTimer);
       engine?.destroy();
       engine = null;
     };
@@ -57,7 +79,13 @@
   class:smoke-out={isRejected}
   style="left: {bbox[0]}px; top: {bbox[1]}px; width: {bbox[2]}px; min-height: {bbox[3]}px;"
 >
-  <div bind:this={containerEl} class="tegaki-container"></div>
+  {#if fontMode === 'kcc'}
+    <div class="kcc-container">
+      {sentence.slice(0, kccVisibleLength)}
+    </div>
+  {:else}
+    <div bind:this={containerEl} class="tegaki-container"></div>
+  {/if}
 </div>
 
 <style>
@@ -73,6 +101,14 @@
                 opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
                 filter 0.6s ease;
     z-index: 10;
+  }
+
+  .kcc-container {
+    font-family: 'KCCBangJeonghwan', cursive, sans-serif;
+    font-size: 25px;
+    line-height: 1.4;
+    color: #242424;
+    word-break: keep-all;
   }
 
   .tegaki-container {
