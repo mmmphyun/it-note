@@ -35,59 +35,90 @@ export function getTegakiTiming(level: number) {
 }
 
 /**
- * 필기 획을 실시간으로 추적하는 정밀 스타일러스 펜촉 오버레이 플러그인
- * frame.active[].head 좌표를 기반으로 픽셀 단위로 정확하게 펜촉을 렌더링합니다.
+ * 필기 획을 실시간으로 추적하는 정밀 연필(Pencil) 오버레이 플러그인
+ * 1. 획과 획 사이(글자 간격, 띄어쓰기)에서 깜빡이며 사라지지 않고 부드럽게 위치를 유지합니다.
+ * 2. 한글 좌->우 필기 방향에 맞춰 연필 바디가 우측 상단으로 자연스럽게 뻗도록 렌더링합니다.
  */
 export function createStylusPenPlugin(enabled = true): TegakiPlugin {
+  let currentX = 0;
+  let currentY = 0;
+  let isInitialized = false;
+  let opacity = 1.0;
+  let isDrawing = false;
+
   return {
     name: 'stylus-pen-cursor',
     overlay(paintCtx: { ctx: CanvasRenderingContext2D; frame: { active?: Array<{ head?: { x: number; y: number } }> } }) {
       if (!enabled) return;
       const { ctx, frame } = paintCtx;
-      if (!frame || !frame.active || frame.active.length === 0) return;
+      if (!frame) return;
 
-      for (const active of frame.active) {
-        if (!active.head) continue;
-        const { x, y } = active.head;
+      const hasActiveHead = frame.active && frame.active.length > 0 && frame.active[0].head;
 
-        ctx.save();
-        ctx.translate(x, y);
-        // 오른손 필기 각도 (-50도 회전)
-        ctx.rotate(-Math.PI * 0.28);
-
-        // 1. 미세 잉크 접점 그림자
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
-        ctx.beginPath();
-        ctx.ellipse(1, 1, 3, 1.5, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 2. 만년필/스타일러스 금속 펜촉
-        const nibGrad = ctx.createLinearGradient(-4, -12, 4, 0);
-        nibGrad.addColorStop(0, '#5a5a5a');
-        nibGrad.addColorStop(0.5, '#2b2b2b');
-        nibGrad.addColorStop(1, '#111111');
-        ctx.fillStyle = nibGrad;
-
-        ctx.beginPath();
-        ctx.moveTo(0, 0); // 펜촉 끝점 (획의 현재 좌표)
-        ctx.lineTo(4, -12);
-        ctx.lineTo(-4, -12);
-        ctx.closePath();
-        ctx.fill();
-
-        // 3. 골드 메탈 링
-        ctx.fillStyle = '#c5a059';
-        ctx.fillRect(-3.5, -14, 7, 2);
-
-        // 4. 슬림 펜 바디
-        const bodyGrad = ctx.createLinearGradient(-3, -32, 3, -14);
-        bodyGrad.addColorStop(0, '#36393e');
-        bodyGrad.addColorStop(1, '#1a1c1e');
-        ctx.fillStyle = bodyGrad;
-        ctx.fillRect(-3, -34, 6, 20);
-
-        ctx.restore();
+      if (hasActiveHead) {
+        currentX = frame.active![0].head!.x;
+        currentY = frame.active![0].head!.y;
+        isInitialized = true;
+        isDrawing = true;
+        opacity = 1.0;
+      } else if (isDrawing) {
+        // 획간 공백 시 즉시 깜빡여 사라지지 않고, 전체 대필 종료 시 부드럽게 페이드아웃
+        opacity = Math.max(0, opacity - 0.035);
       }
+
+      if (!isInitialized || opacity <= 0.01) return;
+
+      ctx.save();
+      ctx.translate(currentX, currentY);
+
+      // 한글 좌->우 필기 특성에 맞춰 연필 바디가 우측 상단으로 뻗도록 +39.6도(+0.22π) 회전
+      ctx.rotate(Math.PI * 0.22);
+      ctx.globalAlpha = opacity;
+
+      // 1. 미세 흑연 접점 그림자
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+      ctx.beginPath();
+      ctx.ellipse(-1, 1, 3, 1.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 2. 흑연 연필심 (Graphite Tip)
+      ctx.fillStyle = '#222222';
+      ctx.beginPath();
+      ctx.moveTo(0, 0); // 종이에 닿는 연필심 끝점 (정확한 획 좌표)
+      ctx.lineTo(2, -5);
+      ctx.lineTo(-2, -5);
+      ctx.closePath();
+      ctx.fill();
+
+      // 3. 깎인 나무 칼라 (Sharpened Wood)
+      ctx.fillStyle = '#e8c99b';
+      ctx.beginPath();
+      ctx.moveTo(2, -5);
+      ctx.lineTo(4, -13);
+      ctx.lineTo(-4, -13);
+      ctx.lineTo(-2, -5);
+      ctx.closePath();
+      ctx.fill();
+
+      // 4. 연필 바디 (클래식 따뜻한 옐로우/오렌지 입체 그라데이션)
+      const bodyGrad = ctx.createLinearGradient(-4, 0, 4, 0);
+      bodyGrad.addColorStop(0, '#d18b2c');
+      bodyGrad.addColorStop(0.5, '#f5b041');
+      bodyGrad.addColorStop(1, '#b97722');
+      ctx.fillStyle = bodyGrad;
+      ctx.fillRect(-4, -42, 8, 29);
+
+      // 5. 금속 페룰 링 (Metal Ferrule)
+      ctx.fillStyle = '#a0a0a0';
+      ctx.fillRect(-4.5, -46, 9, 4);
+
+      // 6. 핑크 지우개 팁 (Eraser Dome)
+      ctx.fillStyle = '#e57373';
+      ctx.beginPath();
+      ctx.arc(0, -47, 4, Math.PI, 0, false);
+      ctx.fill();
+
+      ctx.restore();
     },
   };
 }
