@@ -17,7 +17,7 @@
 * **패키지 매니저**: `npm workspaces` (`package.json` 루트 `"workspaces": ["packages/*", "apps/*"]`)
 * **`packages/shared`**: 외부 의존성 없음 (순수 TypeScript 인터페이스 및 유틸리티)
 * **`apps/web` (Vite + Svelte 5 + TS)**:
-  * 필수 패키지: `svelte@^5.0.0`, `@sveltejs/vite-plugin-svelte`, `vite`, `typescript`, `svelte-check`, `perfect-freehand` (필압 스트로크 폴리곤 생성용)
+  * 필수 패키지: `svelte@^5.0.0`, `@sveltejs/vite-plugin-svelte`, `vite`, `typescript`, `svelte-check`, `perfect-freehand` (필압 스트로크 폴리곤 생성용), `tegaki` (폰트 기반 한글 손글씨 획순 애니메이션 라이브러리)
   * **주의**: `apps/web/src/lib/canvas/` 하위 파일에는 `<header>`, `<footer>`, `<nav>`, `<button>`, `<input>`, `<select>`, `<textarea>` 태그를 절대 작성하지 마십시오 (하드가드 차단 대상).
 * **`apps/server` (Hono + Node + TS)**:
   * 필수 패키지: `hono`, `@hono/node-server`, `@google/genai` (또는 표준 `fetch` 기반 Gemini/Jev 호출), `tsx`, `typescript`
@@ -32,13 +32,8 @@
    * **엑스(`X` / 취소선 - 기각) 판정**:
      * 두 획(2 strokes)의 선분이 서로 교차(CCW 교차 판정 `true`)하거나,
      * 단일 획이 문장 가로 폭의 $40\%$ 이상을 관통하며 직선성 비율 $\frac{\|P_n - P_0\|}{L} > 0.75$ 또는 지그재그 꺾임(방향 반전 $\ge 3$회)일 때.
-3. **한글 자소 분해 및 획순 애니메이션 (`hangulStrokeEngine.ts`)**:
-   * 유니코드 완성형 한글(`0xAC00` - `0xD7A3`) 분해 공식:
-     * `code = char.charCodeAt(0) - 0xAC00`
-     * `jong = code % 28`
-     * `jung = ((code - jong) / 28) % 21`
-     * `cho = Math.floor(((code - jong) / 28) / 21)`
-   * 분해된 초성·중성·종성 자소 시퀀스를 기반으로 SVG `<text>` 또는 벡터 `<path>`의 `stroke-dasharray` / `stroke-dashoffset`을 자소별 순차 딜레이(`40ms` 간격)로 애니메이션하여 실제 손글씨 획순으로 적히는 효과를 구현합니다.
+3. **한글 획순 대필 애니메이션 (`AiHandwriting.svelte` with `tegaki`)**:
+   * 오픈소스 라이브러리 `tegaki`(`gkurt/tegaki`)를 활용하여 웹 폰트(나눔손글씨 등)로부터 스켈레톤 궤적(Skeleton Path)을 자동 추출하고, Svelte 컴포넌트 내에서 AI 문장을 실제 손글씨 획순대로 순차 렌더링합니다. (사전 벡터 DB 없이 임의의 한글 문장을 자연스럽게 지원).
 
 ---
 
@@ -57,8 +52,8 @@
   - [ ] `PaperCanvas.svelte`: 미색 종이(`#FAF8F5`) 배경, 두 손가락 터치 패닝(여유 스크롤 영역 `2400x1800`), `PointerEvent` 120Hz 펜 필기 렌더링 구현
   - [ ] 펜을 뗀 시점(`lastPointerUpTime`)으로부터 **30초 대기(`Opacity: 1.0` 유지) 후 60초 동안 서서히 투명해지는(`Opacity: 1.0 -> 0.0`)** `requestAnimationFrame` 기반 Decay 타이머 구현 (개발/점검 시 빠른 확인을 위해 URL 쿼리 `?fast=1` 부여 시 `3초 대기 + 5초 증발`로 동작하는 디버그 배속 스위치 포함)
   - [ ] 잉크 증발 완료 시 펜이 닿았던 최소 바운딩 박스(`Cropped Bounding Box`)만 메모리 상의 `base64 PNG`로 추출 후 캔버스에서 획 제거
-- [ ] **Step 1-3: 한글 자소 획순 대필 렌더러 및 O/X 펜 제스처 레이어 구현**
-  - [ ] `hangulStrokeEngine.ts` & `AiHandwriting.svelte`: 추출된 여백 좌표에 한글 문장을 초·중·종성 순서대로 한 획씩 써 내려가는 SVG 애니메이션 구현
+- [ ] **Step 1-3: `tegaki` 기반 한글 획순 대필 렌더러 및 O/X 펜 제스처 레이어 구현**
+  - [ ] `AiHandwriting.svelte`: `tegaki` 라이브러리를 연동하여 추출된 여백 좌표에 손글씨 웹 폰트로 한글 획순 애니메이션 렌더링 구현
   - [ ] `OxGestureLayer.svelte`: AI가 적은 문장 위에서 사용자가 펜으로 `O`를 그리면 종이 아래로 스며들듯 흡수(Sink-in)되어 로컬 상태에 저장되고, `X`를 그리면 연기처럼 사라진 뒤 오답이 반영된 대체 문장이 다시 적히는 인터랙션 구현
   - [ ] 우측 하단 `잇적` 워터마크(`opacity: 0.15`) 펜촉 더블탭+홀드 시 열리는 기본 `/desk` 보관함 뷰 연결
 
