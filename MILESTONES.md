@@ -56,9 +56,13 @@
   - [ ] `AiHandwriting.svelte`: `tegaki` 라이브러리를 연동하여 추출된 여백 좌표에 손글씨 웹 폰트로 한글 획순 애니메이션 렌더링 구현
   - [ ] `OxGestureLayer.svelte`: AI가 적은 문장 위에서 사용자가 펜으로 `O`를 그리면 종이 아래로 스며들듯 흡수(Sink-in)되어 로컬 상태에 저장되고, `X`를 그리면 연기처럼 사라진 뒤 오답이 반영된 대체 문장이 다시 적히는 인터랙션 구현
   - [ ] 우측 하단 `잇적` 워터마크(`opacity: 0.15`) 펜촉 더블탭+홀드 시 열리는 기본 `/desk` 보관함 뷰 연결
-- [ ] **Step 1-4: Vitest 단위 테스트 코드 작성 및 검증**
+- [ ] **Step 1-4: Vitest 단위 및 캔버스 라이프사이클 통합 테스트 작성**
   - [ ] `apps/web/src/lib/canvas/__tests__/gesture.test.ts`: Shoelace 면적 및 시작-끝점 거리 비율 기반 `O` 판정 단위 테스트, CCW 교차선 및 관통선 기반 `X` 판정 단위 테스트 작성
   - [ ] `apps/web/src/lib/canvas/__tests__/decayTimer.test.ts`: 30초 대기(투명도 1.0 유지) 및 60초 증발(투명도 선형 감소) 상태 머신 시간 계산 함수 단위 테스트 작성
+  - [ ] `apps/web/src/lib/canvas/__tests__/canvasLifecycle.test.ts`: 가상 타이머(`vi.useFakeTimers()`)를 이용한 캔버스 상태 머신 통합 테스트 작성
+    * 펜 입력 후 25초 시점에 추가 펜 입력 시 30초 대기 타이머가 정상 리셋되는지 검증
+    * 30초 대기 + 60초 증발 만료 시점에 최소 바운딩 박스 크롭 이미지 이벤트가 정상 방출되는지 검증
+    * AI 문장 위 O 획 입력 시 해당 문장이 흡수(`isConfirmed = true`) 상태로 전이되는지 검증
   - [ ] `npm test -- --run` 실행으로 테스트 100% 통과 확인
 
 ### 1차 점검 제출 증빙 가이드 (3단계 확인법)
