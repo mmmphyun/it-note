@@ -1,4 +1,4 @@
-import type { TegakiPlugin } from 'tegaki/core';
+import type { TegakiPlugin, TegakiTimingContext, TegakiFrame } from 'tegaki/core';
 
 /**
  * 속도 레벨 (1 ~ 10)에 따른 획순 타이밍 설정값 계산
@@ -23,9 +23,9 @@ export function getTegakiTiming(level: number) {
 
   return {
     factor,
-    glyphGap: 0.02 * factor,
-    wordGap: 0.04 * factor,
-    lineGap: 0.06 * factor,
+    glyphGap: 0.03 * factor,
+    wordGap: 0.06 * factor,
+    lineGap: 0.09 * factor,
     unknownDuration: 0.05 * factor,
     stagger: {
       advance: `${advancePct}%` as `${number}%`,
@@ -35,90 +35,182 @@ export function getTegakiTiming(level: number) {
 }
 
 /**
- * 필기 획을 실시간으로 추적하는 정밀 연필(Pencil) 오버레이 플러그인
- * 1. 획과 획 사이(글자 간격, 띄어쓰기)에서 깜빡이며 사라지지 않고 부드럽게 위치를 유지합니다.
- * 2. 한글 좌->우 필기 방향에 맞춰 연필 바디가 우측 상단으로 자연스럽게 뻗도록 렌더링합니다.
+ * 두 점 사이의 이동 거리에 따른 공중 이동 시간(초) 산출
+ * 사람이 손을 떼고 다음 획 시작점으로 이동할 때의 최소/최대 시간 제약
  */
-export function createStylusPenPlugin(enabled = true): TegakiPlugin {
-  let currentX = 0;
-  let currentY = 0;
-  let isInitialized = false;
-  let opacity = 1.0;
-  let isDrawing = false;
+export function calculateGlideDuration(distancePx: number, factor: number): number {
+  const minTime = 0.03 * factor;
+  const maxTime = 0.25 * factor;
+  // 기준 속도: 초당 약 350px 이동 + 초기 손들기 0.02초
+  const rawTime = (distancePx / 350) * factor + 0.02 * factor;
+  return Math.max(minTime, Math.min(maxTime, rawTime));
+}
+
+/**
+ * 직전 획 끝점(p0)에서 다음 획 시작점(p1)까지의 공중 이동(Air-Glide) 좌표 보간
+ * Smoothstep(S-Curve)과 포물선 리프트(공중 부양 호)를 적용해 사람이 펜을 떼어 이동하는 물리 동작을 재현합니다.
+ *
+ * @param p0 직전 획 끝점
+ * @param p1 다음 획 시작점
+ * @param u 진행률 (0.0 ~ 1.0)
+ */
+export function interpolateAirGlide(
+  p0: { x: number; y: number },
+  p1: { x: number; y: number },
+  u: number
+): { x: number; y: number } {
+  const clampedU = Math.max(0, Math.min(1, u));
+
+  // 1. Smoothstep 이징을 통한 부드러운 가속 및 감속
+  const s = clampedU * clampedU * (3 - 2 * clampedU);
+  const x = p0.x + (p1.x - p0.x) * s;
+  let y = p0.y + (p1.y - p0.y) * s;
+
+  // 2. 종이에서 손을 뗄 때 발생하는 상향 리프트(Air-lift arc)
+  const dx = p1.x - p0.x;
+  const dy = p1.y - p0.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const maxLift = Math.min(6, Math.max(1.5, dist * 0.08));
+  const lift = Math.sin(clampedU * Math.PI) * maxLift;
+
+  y -= lift;
+
+  return { x, y };
+}
+
+export interface AirGlideOptions {
+  speedLevel?: number;
+  onPosition: (pos: { x: number; y: number; isAirborne: boolean }) => void;
+  onComplete?: () => void;
+}
+
+interface StrokeSchedule {
+  start: number;
+  duration: number;
+  end: number;
+  startPoint: { x: number; y: number };
+  endPoint: { x: number; y: number };
+}
+
+/**
+ * 획과 획 사이의 순간이동을 제거하고 공중 곡선 이동(Air Glide)을 구현하는 통합 플러그인
+ * 1. timing 훅: 획 간 물리적 이동 거리를 계산하여 타임라인에 실제 공중 이동 시간 슬롯을 확보합니다.
+ * 2. onFrame 훅: 종이에 쓰는 중일 때는 실제 획 헤드를 1:1 추적하고, 획 간 공백에서는 곡선 보간을 수행합니다.
+ */
+export function createAirGlidePlugin(options: AirGlideOptions): TegakiPlugin {
+  const { speedLevel = 4, onPosition } = options;
+  const timingConfig = getTegakiTiming(speedLevel);
+  const factor = timingConfig.factor;
+
+  let schedules: StrokeSchedule[] = [];
 
   return {
-    name: 'stylus-pen-cursor',
-    overlay(paintCtx: { ctx: CanvasRenderingContext2D; frame: { active?: Array<{ head?: { x: number; y: number } }> } }) {
-      if (!enabled) return;
-      const { ctx, frame } = paintCtx;
-      if (!frame) return;
+    name: 'stylus-air-glide',
 
-      const hasActiveHead = frame.active && frame.active.length > 0 && frame.active[0].head;
+    timing(ctx: TegakiTimingContext) {
+      const strokes = ctx.strokes;
+      if (!strokes || strokes.length === 0) return undefined;
 
-      if (hasActiveHead) {
-        currentX = frame.active![0].head!.x;
-        currentY = frame.active![0].head!.y;
-        isInitialized = true;
-        isDrawing = true;
-        opacity = 1.0;
-      } else if (isDrawing) {
-        // 획간 공백 시 즉시 깜빡여 사라지지 않고, 전체 대필 종료 시 부드럽게 페이드아웃
-        opacity = Math.max(0, opacity - 0.035);
+      schedules = [];
+      let currentCursor = 0;
+      const timedStrokes: Array<{ start: number; duration: number }> = [];
+
+      for (let i = 0; i < strokes.length; i++) {
+        const stroke = strokes[i];
+        const origDuration = stroke.duration;
+        const startPt = stroke.path.pointAt(0);
+        const endPt = stroke.path.pointAt(1);
+
+        if (i > 0) {
+          const prevEnd = schedules[i - 1].endPoint;
+          const dx = startPt.x - prevEnd.x;
+          const dy = startPt.y - prevEnd.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          const glideTime = calculateGlideDuration(dist, factor);
+          currentCursor += glideTime;
+        }
+
+        const start = currentCursor;
+        const end = start + origDuration;
+
+        schedules.push({
+          start,
+          duration: origDuration,
+          end,
+          startPoint: { x: startPt.x, y: startPt.y },
+          endPoint: { x: endPt.x, y: endPt.y },
+        });
+
+        timedStrokes.push({ start, duration: origDuration });
+        currentCursor = end;
       }
 
-      if (!isInitialized || opacity <= 0.01) return;
+      return {
+        strokes: timedStrokes,
+        duration: currentCursor + 0.05 * factor,
+      };
+    },
 
-      ctx.save();
-      ctx.translate(currentX, currentY);
+    onFrame(frame: TegakiFrame) {
+      if (!frame) return;
 
-      // 한글 좌->우 필기 특성에 맞춰 연필 바디가 우측 상단으로 뻗도록 +39.6도(+0.22π) 회전
-      ctx.rotate(Math.PI * 0.22);
-      ctx.globalAlpha = opacity;
+      const hasActive = frame.active && frame.active.length > 0 && frame.active[0].head;
 
-      // 1. 미세 흑연 접점 그림자
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-      ctx.beginPath();
-      ctx.ellipse(-1, 1, 3, 1.5, 0, 0, Math.PI * 2);
-      ctx.fill();
+      // 1. 현재 어떤 획을 종이에 대고 쓰는 중인 경우
+      if (hasActive) {
+        const head = frame.active[0].head;
+        onPosition({
+          x: head.x,
+          y: head.y,
+          isAirborne: false,
+        });
+        return;
+      }
 
-      // 2. 흑연 연필심 (Graphite Tip)
-      ctx.fillStyle = '#222222';
-      ctx.beginPath();
-      ctx.moveTo(0, 0); // 종이에 닿는 연필심 끝점 (정확한 획 좌표)
-      ctx.lineTo(2, -5);
-      ctx.lineTo(-2, -5);
-      ctx.closePath();
-      ctx.fill();
+      // 2. 획과 획 사이 공중 이동 구간(Airborne Glide)인 경우
+      if (schedules.length === 0) return;
 
-      // 3. 깎인 나무 칼라 (Sharpened Wood)
-      ctx.fillStyle = '#e8c99b';
-      ctx.beginPath();
-      ctx.moveTo(2, -5);
-      ctx.lineTo(4, -13);
-      ctx.lineTo(-4, -13);
-      ctx.lineTo(-2, -5);
-      ctx.closePath();
-      ctx.fill();
+      const t = frame.time;
 
-      // 4. 연필 바디 (클래식 따뜻한 옐로우/오렌지 입체 그라데이션)
-      const bodyGrad = ctx.createLinearGradient(-4, 0, 4, 0);
-      bodyGrad.addColorStop(0, '#d18b2c');
-      bodyGrad.addColorStop(0.5, '#f5b041');
-      bodyGrad.addColorStop(1, '#b97722');
-      ctx.fillStyle = bodyGrad;
-      ctx.fillRect(-4, -42, 8, 29);
+      // 현재 시간이 어떤 두 획 사이에 있는지 탐색
+      for (let i = 0; i < schedules.length - 1; i++) {
+        const curr = schedules[i];
+        const next = schedules[i + 1];
 
-      // 5. 금속 페룰 링 (Metal Ferrule)
-      ctx.fillStyle = '#a0a0a0';
-      ctx.fillRect(-4.5, -46, 9, 4);
+        if (t >= curr.end && t <= next.start) {
+          const gap = next.start - curr.end;
+          const u = gap > 0 ? (t - curr.end) / gap : 1;
+          const pos = interpolateAirGlide(curr.endPoint, next.startPoint, u);
 
-      // 6. 핑크 지우개 팁 (Eraser Dome)
-      ctx.fillStyle = '#e57373';
-      ctx.beginPath();
-      ctx.arc(0, -47, 4, Math.PI, 0, false);
-      ctx.fill();
+          onPosition({
+            x: pos.x,
+            y: pos.y,
+            isAirborne: true,
+          });
+          return;
+        }
+      }
 
-      ctx.restore();
+      // 첫 획 시작 전: 첫 획의 시작점에 대기
+      if (t < schedules[0].start) {
+        onPosition({
+          x: schedules[0].startPoint.x,
+          y: schedules[0].startPoint.y,
+          isAirborne: true,
+        });
+        return;
+      }
+
+      // 마지막 획 종료 후
+      if (t >= schedules[schedules.length - 1].end) {
+        const last = schedules[schedules.length - 1];
+        onPosition({
+          x: last.endPoint.x,
+          y: last.endPoint.y,
+          isAirborne: false,
+        });
+      }
     },
   };
 }

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { TegakiEngine } from 'tegaki/core';
   import nanumFont from 'tegaki/fonts/nanum-pen-script';
-  import { getTegakiTiming } from '../canvas/stylusPenPlugin';
+  import { getTegakiTiming, createAirGlidePlugin } from '../canvas/stylusPenPlugin';
 
   let testText = $state('가상 DOM 오버헤드가 큰 React 대신 Svelte 5와 Hono로 모노레포를 구성하는 계획 맞나요?');
   let fontSize = $state(32);
@@ -13,10 +13,11 @@
   let tegakiEngine: TegakiEngine | null = null;
   let isWriting = $state(false);
 
-  // 실시간 펜 좌표 (DOM 독립 레이어)
+  // 실시간 펜 좌표 (공중 곡선 보간 지원)
   let penX = $state(0);
   let penY = $state(0);
   let isPenActive = $state(false);
+  let isAirborne = $state(false);
 
   const durationEstimates: Record<number, string> = {
     1: '22.4초 (극저속·획 하나하나 관찰)',
@@ -37,36 +38,39 @@
     tegakiContainer.innerHTML = '';
     isWriting = true;
     isPenActive = false;
+    isAirborne = false;
 
     const timing = getTegakiTiming(speedLevel);
 
-    const trackerPlugin = {
-      name: 'pen-position-tracker',
-      onFrame(frame: { active?: Array<{ head?: { x: number; y: number } }> }) {
+    // 공중 곡선 보간(Air Glide) 플러그인
+    const airGlidePlugin = createAirGlidePlugin({
+      speedLevel,
+      onPosition: (pos) => {
         if (!showPenTip) return;
-        if (frame.active && frame.active.length > 0 && frame.active[0].head) {
-          penX = frame.active[0].head.x;
-          penY = frame.active[0].head.y;
-          isPenActive = true;
-        }
+        penX = pos.x;
+        penY = pos.y;
+        isAirborne = pos.isAirborne;
+        isPenActive = true;
       },
-    };
+    });
 
     try {
       tegakiEngine = new TegakiEngine(tegakiContainer, {
         text: testText,
         font: nanumFont,
         timing,
-        plugins: [trackerPlugin],
+        plugins: [airGlidePlugin],
         onComplete: () => {
           isWriting = false;
           isPenActive = false;
+          isAirborne = false;
         },
       });
     } catch {
       if (tegakiContainer) tegakiContainer.textContent = testText;
       isWriting = false;
       isPenActive = false;
+      isAirborne = false;
     }
   }
 
@@ -199,6 +203,7 @@
           {#if isPenActive}
             <div
               class="stylus-pen-cursor"
+              class:airborne={isAirborne}
               style="transform: translate3d({penX}px, {penY}px, 0);"
             >
               <svg class="pen-svg" width="38" height="38" viewBox="0 0 38 38" fill="none">
@@ -503,6 +508,11 @@
     margin-top: -35px;
     will-change: transform;
     filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.12));
+    transition: filter 0.1s ease;
+  }
+
+  .stylus-pen-cursor.airborne {
+    filter: drop-shadow(2px 5px 4px rgba(0, 0, 0, 0.18));
   }
 
   .pen-svg {
