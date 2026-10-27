@@ -50,6 +50,10 @@
       speedLevel: savedLevel,
       onPosition: (pos) => {
         if (!showPenTip || !penEl) return;
+        if (pos.isDone) {
+          penEl.style.display = 'none';
+          return;
+        }
         penEl.style.display = 'block';
         penEl.style.transform = `translate3d(${pos.x}px, ${pos.y}px, 0)`;
         if (pos.isAirborne) {
@@ -94,7 +98,7 @@
   style="
     left: {bbox[0]}px;
     top: {bbox[1]}px;
-    width: {bbox[2]}px;
+    min-width: {bbox[2]}px;
     min-height: {bbox[3]}px;
     --tilt: {tiltDeg}deg;
   "
@@ -145,6 +149,8 @@
                 filter 0.6s ease;
     z-index: 10;
     overflow: visible;
+    width: max-content;
+    max-width: 960px;
   }
 
   .tegaki-container {
@@ -155,6 +161,8 @@
     word-break: keep-all;
     white-space: pre-line; /* 어절 단위 줄바꿈(\n) 완벽 반영 */
     overflow: visible;
+    width: max-content;
+    max-width: 960px;
   }
 
   .stylus-pen-cursor {

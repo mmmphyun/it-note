@@ -80,7 +80,7 @@ export function interpolateAirGlide(
 
 export interface AirGlideOptions {
   speedLevel?: number;
-  onPosition: (pos: { x: number; y: number; isAirborne: boolean }) => void;
+  onPosition: (pos: { x: number; y: number; isAirborne: boolean; isDone?: boolean }) => void;
   onComplete?: () => void;
 }
 
@@ -202,14 +202,16 @@ export function createAirGlidePlugin(options: AirGlideOptions): TegakiPlugin {
         return;
       }
 
-      // 마지막 획 종료 후
+      // 마지막 획 종료 후: 대필 완료 즉시 펜 흔적 없이 소멸
       if (t >= schedules[schedules.length - 1].end) {
         const last = schedules[schedules.length - 1];
         onPosition({
           x: last.endPoint.x,
           y: last.endPoint.y,
           isAirborne: false,
+          isDone: true,
         });
+        return;
       }
     },
   };

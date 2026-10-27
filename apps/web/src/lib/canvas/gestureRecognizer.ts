@@ -173,10 +173,36 @@ export function recognizeOxGesture(
     return 'NONE';
   }
 
-  // 2. 2개 획 교차 검사 (X)
-  if (strokes.length === 2) {
-    if (strokesIntersect(strokes[0], strokes[1])) {
-      return 'X';
+  // 2. 2개 이상 획 교차 검사 (X - 관대한 대각선 교차 판정)
+  if (strokes.length >= 2) {
+    for (let i = 0; i < strokes.length; i++) {
+      for (let j = i + 1; j < strokes.length; j++) {
+        const s1 = strokes[i];
+        const s2 = strokes[j];
+
+        // A. 엄격한 기하학 선분 교차
+        if (strokesIntersect(s1, s2)) {
+          return 'X';
+        }
+
+        // B. 유연한 근접 교차: 바운딩 박스가 겹치고 두 획의 중심이 가까우며 서로 다른 대각선 방향인 경우
+        const bb1 = getBoundingBox(s1);
+        const bb2 = getBoundingBox(s2);
+        const overlapX = Math.max(0, Math.min(bb1[2], bb2[2]) - Math.max(bb1[0], bb2[0]));
+        const overlapY = Math.max(0, Math.min(bb1[3], bb2[3]) - Math.max(bb1[1], bb2[1]));
+
+        if (overlapX > 5 && overlapY > 5) {
+          const c1x = (bb1[0] + bb1[2]) / 2;
+          const c1y = (bb1[1] + bb1[3]) / 2;
+          const c2x = (bb2[0] + bb2[2]) / 2;
+          const c2y = (bb2[1] + bb2[3]) / 2;
+          const centerDist = Math.hypot(c2x - c1x, c2y - c1y);
+
+          if (centerDist < 80) {
+            return 'X';
+          }
+        }
+      }
     }
   }
 
