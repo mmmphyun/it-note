@@ -1,6 +1,7 @@
 <script lang="ts">
   import { TegakiEngine } from 'tegaki/core';
   import nanumFont from 'tegaki/fonts/nanum-pen-script';
+  import { createStylusPenPlugin, getTegakiTiming } from './stylusPenPlugin';
 
   interface Props {
     sentence: string;
@@ -28,21 +29,19 @@
     engine?.destroy();
     containerEl.innerHTML = '';
 
+    // 로컬스토리지 속도 레벨 (1 ~ 10, 기본 4) 및 펜촉 표시 여부 조회
+    const savedLevel = typeof localStorage !== 'undefined' ? Number(localStorage.getItem('itnote_writing_speed') || 4) : 4;
+    const showPenTip = typeof localStorage !== 'undefined' ? localStorage.getItem('itnote_pen_tip') !== 'false' : true;
+
+    const timing = getTegakiTiming(savedLevel);
+    const plugins = showPenTip ? [createStylusPenPlugin(true)] : [];
+
     try {
-      // 나눔손글씨 펜체 고속 자연 필기 타이밍 (기본 37초 -> 약 2.5초로 15배 쾌속 재생)
       engine = new TegakiEngine(containerEl, {
         text: sentence,
         font: nanumFont,
-        timing: {
-          glyphGap: 0.02,
-          wordGap: 0.04,
-          lineGap: 0.06,
-          unknownDuration: 0.05,
-          stagger: {
-            advance: '45%',
-            duration: 0.09,
-          },
-        },
+        timing,
+        plugins,
         onComplete: () => {
           onComplete?.();
         },
