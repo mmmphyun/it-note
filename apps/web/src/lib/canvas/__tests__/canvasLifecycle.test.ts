@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { CanvasLifecycleEngine } from '../canvasLifecycle';
+import {
+  CanvasLifecycleEngine,
+  formatHandwrittenSentence,
+  generateRandomTilt
+} from '../canvasLifecycle';
 import type { CroppedImageResult } from '../cropExtractor';
 import type { ConfirmedNote } from '@itnote/shared';
 
@@ -172,5 +176,26 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     expect(engine.activeHypothesis).not.toBeNull();
     expect(engine.activeHypothesis!.sentence).not.toBe('가설 1번 문장');
     expect(engine.activeHypothesis!.isConfirmed).toBe(false);
+  });
+
+  it('formatHandwrittenSentence는 긴 문장을 어절 단위로 자연스럽게 줄바꿈(\\n)해야 함', () => {
+    const longText = '가상 DOM 오버헤드가 큰 React 대신 Svelte 5와 Hono로 모노레포를 구성하는 계획 맞나요?';
+    const formatted = formatHandwrittenSentence(longText);
+
+    expect(formatted).toContain('\n');
+    const lines = formatted.split('\n');
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    // 모든 단어가 보존되었는지 확인
+    const originalWords = longText.trim().split(/\s+/);
+    const formattedWords = formatted.trim().split(/\s+/);
+    expect(formattedWords).toEqual(originalWords);
+  });
+
+  it('generateRandomTilt는 지정된 범위 내의 자연스러운 기울기 각도를 반환해야 함', () => {
+    for (let i = 0; i < 20; i++) {
+      const tilt = generateRandomTilt(-1.8, 1.4);
+      expect(tilt).toBeGreaterThanOrEqual(-1.8);
+      expect(tilt).toBeLessThanOrEqual(1.4);
+    }
   });
 });

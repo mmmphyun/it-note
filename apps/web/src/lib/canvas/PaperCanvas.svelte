@@ -39,8 +39,11 @@
   let panStartX = 0;
   let panStartY = 0;
 
-  // 애니메이션 프레임 루프
+  // 애니메이션 프레임 루프 및 더티 렌더링 추적
   let animationFrameId: number;
+  let lastRenderedOpacity = -1;
+  let lastRenderedStrokeCount = -1;
+  let lastHasCurrentStroke = false;
 
   function renderStrokes(currentOpacity = 1.0) {
     if (!ctx || !canvasEl || !engine) return;
@@ -102,8 +105,19 @@
   function tick() {
     if (engine) {
       const decay = engine.tick(performance.now());
-      activeHypothesis = engine.activeHypothesis;
-      renderStrokes(decay.opacity);
+      // 매 프레임 불필요한 activeHypothesis 재대입 제거 (무한 반응형 루프 방지)
+      const hasCurrent = engine.currentStroke !== null;
+      const strokeCount = engine.strokes.length;
+      if (
+        decay.opacity !== lastRenderedOpacity ||
+        strokeCount !== lastRenderedStrokeCount ||
+        hasCurrent !== lastHasCurrentStroke
+      ) {
+        renderStrokes(decay.opacity);
+        lastRenderedOpacity = decay.opacity;
+        lastRenderedStrokeCount = strokeCount;
+        lastHasCurrentStroke = hasCurrent;
+      }
     }
     animationFrameId = requestAnimationFrame(tick);
   }
@@ -241,6 +255,17 @@
 
     if (canvasEl) {
       ctx = canvasEl.getContext('2d');
+      renderStrokes(1.0);
+    }
+
+    // 0초 모드(?fast=0): 사용자가 필기하지 않고 대기할 경우 1.2초 후 AI가 초기 메모 시연
+    if (speedMode === 'instant') {
+      setTimeout(() => {
+        if (engine && engine.strokes.length === 0 && !activeHypothesis) {
+          engine.spawnHypothesis([180, 140, 420, 200], performance.now());
+          activeHypothesis = engine.activeHypothesis;
+        }
+      }, 1200);
     }
 
     animationFrameId = requestAnimationFrame(tick);
@@ -278,6 +303,7 @@
       <AiHandwriting
         sentence={activeHypothesis.sentence}
         bbox={activeHypothesis.bbox}
+        tiltDeg={activeHypothesis.tiltDeg ?? 0}
         isConfirmed={activeHypothesis.isConfirmed}
         isRejected={activeHypothesis.isRejected}
       />

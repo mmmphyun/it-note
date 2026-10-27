@@ -10,6 +10,40 @@ export interface CanvasLifecycleCallbacks {
   onHypothesisRejected?: (hypo: AiHypothesis) => void;
 }
 
+/**
+ * 손글씨 특유의 자연스러운 미세 회전 각도 산출 (-1.8도 ~ +1.4도)
+ */
+export function generateRandomTilt(minDeg = -1.8, maxDeg = 1.4): number {
+  return Number((minDeg + Math.random() * (maxDeg - minDeg)).toFixed(2));
+}
+
+/**
+ * 기계적인 일자형 긴 텍스트를 방지하고, 실제 손글씨처럼 2~4단어 단위의 불규칙한 줄바꿈(\n) 적용
+ */
+export function formatHandwrittenSentence(sentence: string): string {
+  const words = sentence.trim().split(/\s+/);
+  if (words.length <= 3) return sentence;
+
+  const lines: string[] = [];
+  let currentWords: string[] = [];
+  let targetCount = Math.floor(Math.random() * 2) + 3; // 3 or 4 words
+
+  for (const word of words) {
+    currentWords.push(word);
+    if (currentWords.length >= targetCount) {
+      lines.push(currentWords.join(' '));
+      currentWords = [];
+      targetCount = Math.floor(Math.random() * 2) + 2; // 2 or 3 words
+    }
+  }
+
+  if (currentWords.length > 0) {
+    lines.push(currentWords.join(' '));
+  }
+
+  return lines.join('\n');
+}
+
 export class CanvasLifecycleEngine {
   strokes: Stroke[] = [];
   currentStroke: Stroke | null = null;
@@ -114,14 +148,18 @@ export class CanvasLifecycleEngine {
   }
 
   spawnHypothesis(bbox: [number, number, number, number], now: number): void {
-    const sentence = this.mockSentences[this.mockSentenceIndex % this.mockSentences.length];
+    const rawSentence = this.mockSentences[this.mockSentenceIndex % this.mockSentences.length];
+    const formattedSentence = formatHandwrittenSentence(rawSentence);
+    const tiltDeg = generateRandomTilt();
+
     const hypothesis: AiHypothesis = {
       id: `hypo-${now}`,
-      sentence,
+      sentence: formattedSentence,
       bbox: [Math.min(1800, bbox[2] + 40), bbox[1], 540, 95],
       createdAt: now,
       isConfirmed: false,
       isRejected: false,
+      tiltDeg,
     };
     this.activeHypothesis = hypothesis;
     this.callbacks.onHypothesisSpawned?.(hypothesis);

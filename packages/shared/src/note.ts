@@ -39,6 +39,7 @@ export interface AiHypothesis {
   createdAt: number;
   isConfirmed: boolean;
   isRejected: boolean;
+  tiltDeg?: number; // 손글씨 자연스러운 미세 회전 각도 (단위: deg, 예: -1.5 ~ +1.5)
 }
 
 export interface ConfirmedNote {

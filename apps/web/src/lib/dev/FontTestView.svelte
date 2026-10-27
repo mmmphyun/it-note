@@ -3,21 +3,19 @@
   import { TegakiEngine } from 'tegaki/core';
   import nanumFont from 'tegaki/fonts/nanum-pen-script';
   import { getTegakiTiming, createAirGlidePlugin } from '../canvas/stylusPenPlugin';
+  import { formatHandwrittenSentence, generateRandomTilt } from '../canvas/canvasLifecycle';
 
   let testText = $state('가상 DOM 오버헤드가 큰 React 대신 Svelte 5와 Hono로 모노레포를 구성하는 계획 맞나요?');
   let fontSize = $state(32);
   let speedLevel = $state(4); // 1 ~ 10
   let showPenTip = $state(true);
+  let useOrganicBreak = $state(true); // 유기적 어절 줄바꿈 여부
+  let tiltDeg = $state(-0.8); // 손글씨 미세 회전
 
   let tegakiContainer = $state<HTMLDivElement | null>(null);
+  let penEl = $state<HTMLDivElement | null>(null);
   let tegakiEngine: TegakiEngine | null = null;
   let isWriting = $state(false);
-
-  // 실시간 펜 좌표 (공중 곡선 보간 지원)
-  let penX = $state(0);
-  let penY = $state(0);
-  let isPenActive = $state(false);
-  let isAirborne = $state(false);
 
   const durationEstimates: Record<number, string> = {
     1: '22.4초 (극저속·획 하나하나 관찰)',
@@ -37,40 +35,46 @@
     tegakiEngine?.destroy();
     tegakiContainer.innerHTML = '';
     isWriting = true;
-    isPenActive = false;
-    isAirborne = false;
 
+    if (penEl) {
+      penEl.style.display = 'none';
+      penEl.classList.remove('airborne');
+    }
+
+    tiltDeg = generateRandomTilt();
+    const processedText = useOrganicBreak ? formatHandwrittenSentence(testText) : testText;
     const timing = getTegakiTiming(speedLevel);
 
-    // 공중 곡선 보간(Air Glide) 플러그인
+    // 공중 곡선 보간(Air Glide) 플러그인 (Direct GPU 조작)
     const airGlidePlugin = createAirGlidePlugin({
       speedLevel,
       onPosition: (pos) => {
-        if (!showPenTip) return;
-        penX = pos.x;
-        penY = pos.y;
-        isAirborne = pos.isAirborne;
-        isPenActive = true;
+        if (!showPenTip || !penEl) return;
+        penEl.style.display = 'block';
+        penEl.style.transform = `translate3d(${pos.x}px, ${pos.y}px, 0)`;
+        if (pos.isAirborne) {
+          penEl.classList.add('airborne');
+        } else {
+          penEl.classList.remove('airborne');
+        }
       },
     });
 
     try {
       tegakiEngine = new TegakiEngine(tegakiContainer, {
-        text: testText,
+        text: processedText,
         font: nanumFont,
         timing,
         plugins: [airGlidePlugin],
         onComplete: () => {
           isWriting = false;
-          isPenActive = false;
-          isAirborne = false;
+          if (penEl) penEl.style.display = 'none';
         },
       });
     } catch {
-      if (tegakiContainer) tegakiContainer.textContent = testText;
+      if (tegakiContainer) tegakiContainer.textContent = processedText;
       isWriting = false;
-      isPenActive = false;
-      isAirborne = false;
+      if (penEl) penEl.style.display = 'none';
     }
   }
 
@@ -90,7 +94,7 @@
 
     return () => {
       tegakiEngine?.destroy();
-      isPenActive = false;
+      if (penEl) penEl.style.display = 'none';
     };
   });
 </script>
@@ -155,7 +159,7 @@
           />
         </div>
 
-        <!-- 실시간 펜촉 오버레이 체크박스 -->
+        <!-- 실시간 펜촉 오버레이 및 손글씨 줄바꿈 체크박스 -->
         <div class="checkbox-group">
           <label class="checkbox-label">
             <input
@@ -164,6 +168,17 @@
               onchange={startAnimation}
             />
             <span class="chk-text">실시간 스타일러스 볼펜 추적 표시</span>
+          </label>
+        </div>
+
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              bind:checked={useOrganicBreak}
+              onchange={startAnimation}
+            />
+            <span class="chk-text">유기적 어절 줄바꿈 및 미세 기울기 ({tiltDeg}°) 적용</span>
           </label>
         </div>
 
@@ -193,33 +208,31 @@
       </div>
 
       <div class="paper-preview">
-        <div class="text-stage">
+        <div class="text-stage" style="transform: rotate({tiltDeg}deg); transform-origin: top left;">
           <div
             bind:this={tegakiContainer}
             class="rendered-text"
             style="font-size: {fontSize}px;"
           ></div>
 
-          {#if isPenActive}
-            <div
-              class="stylus-pen-cursor"
-              class:airborne={isAirborne}
-              style="transform: translate3d({penX}px, {penY}px, 0);"
-            >
-              <svg class="pen-svg" width="38" height="38" viewBox="0 0 38 38" fill="none">
-                <path d="M3 35 L6 27 L11 32 Z" fill="#1e1e1e" />
-                <path d="M6 27 L11 32 L31 12 L26 7 Z" fill="url(#test-ballpen-body)" />
-                <path d="M26 7 L31 12 L35 8 L30 4 Z" fill="#9e9e9e" />
-                <defs>
-                  <linearGradient id="test-ballpen-body" x1="6" y1="27" x2="31" y2="12" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#2c3038" />
-                    <stop offset="0.5" stop-color="#474e5c" />
-                    <stop offset="1" stop-color="#1e2126" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-          {/if}
+          <div
+            bind:this={penEl}
+            class="stylus-pen-cursor"
+            style="display: none;"
+          >
+            <svg class="pen-svg" width="38" height="38" viewBox="0 0 38 38" fill="none">
+              <path d="M3 35 L6 27 L11 32 Z" fill="#1e1e1e" />
+              <path d="M6 27 L11 32 L31 12 L26 7 Z" fill="url(#test-ballpen-body)" />
+              <path d="M26 7 L31 12 L35 8 L30 4 Z" fill="#9e9e9e" />
+              <defs>
+                <linearGradient id="test-ballpen-body" x1="6" y1="27" x2="31" y2="12" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#2c3038" />
+                  <stop offset="0.5" stop-color="#474e5c" />
+                  <stop offset="1" stop-color="#1e2126" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
         </div>
       </div>
 
@@ -490,9 +503,10 @@
 
   .rendered-text {
     font-family: 'Nanum Pen Script', cursive, sans-serif;
-    line-height: 1.5;
+    line-height: 1.55;
     color: #1a1a1a;
     word-break: keep-all;
+    white-space: pre-line;
     text-align: left;
     width: 100%;
     overflow: visible;
@@ -511,7 +525,7 @@
     transition: filter 0.1s ease;
   }
 
-  .stylus-pen-cursor.airborne {
+  :global(.stylus-pen-cursor.airborne) {
     filter: drop-shadow(2px 5px 4px rgba(0, 0, 0, 0.18));
   }
 
