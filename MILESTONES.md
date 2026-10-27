@@ -56,6 +56,10 @@
   - [ ] `AiHandwriting.svelte`: `tegaki` 라이브러리를 연동하여 추출된 여백 좌표에 손글씨 웹 폰트로 한글 획순 애니메이션 렌더링 구현
   - [ ] `OxGestureLayer.svelte`: AI가 적은 문장 위에서 사용자가 펜으로 `O`를 그리면 종이 아래로 스며들듯 흡수(Sink-in)되어 로컬 상태에 저장되고, `X`를 그리면 연기처럼 사라진 뒤 오답이 반영된 대체 문장이 다시 적히는 인터랙션 구현
   - [ ] 우측 하단 `잇적` 워터마크(`opacity: 0.15`) 펜촉 더블탭+홀드 시 열리는 기본 `/desk` 보관함 뷰 연결
+- [ ] **Step 1-4: Vitest 단위 테스트 코드 작성 및 검증**
+  - [ ] `apps/web/src/lib/canvas/__tests__/gesture.test.ts`: Shoelace 면적 및 시작-끝점 거리 비율 기반 `O` 판정 단위 테스트, CCW 교차선 및 관통선 기반 `X` 판정 단위 테스트 작성
+  - [ ] `apps/web/src/lib/canvas/__tests__/decayTimer.test.ts`: 30초 대기(투명도 1.0 유지) 및 60초 증발(투명도 선형 감소) 상태 머신 시간 계산 함수 단위 테스트 작성
+  - [ ] `npm test -- --run` 실행으로 테스트 100% 통과 확인
 
 ### 1차 점검 제출 증빙 가이드 (3단계 확인법)
 1. **이번에 만든 것**: Svelte 5 기반 Zero-UI 스타일러스 캔버스, 증발하는 잉크 타이머 엔진, 한글 획순 대필 애니메이션 및 O/X 기하학 제스처 인식기.
@@ -116,6 +120,11 @@
 - [ ] **Step 2-3: 프론트엔드-백엔드 실시간 연동**
   - [ ] `PaperCanvas.svelte`에서 잉크 증발 시 `/api/infer` 호출 -> 반환된 `marginBox` 여백 좌표에 `AiHandwriting.svelte`가 `sentence`를 한글 획순으로 필기
   - [ ] 사용자가 `X` 마킹 시 해당 문장을 `rejectedHypotheses` 배열에 추가해 즉시 `/api/infer` 재호출 -> 오답이 배제된 새 문장 대필 검증
+- [ ] **Step 2-4: Vitest 백엔드 단위/통합 테스트 작성 및 검증**
+  - [ ] `apps/server/src/__tests__/jevAdapter.test.ts`: Jev 원시 응답 및 Gemini Structured Fallback의 `JevDecisionResult` 스키마 일치성 테스트
+  - [ ] `apps/server/src/__tests__/continuity.test.ts`: 직전 증발 키워드 맥락 존재 시 `isContinuousWithPrevious (Noul)` 처리 및 프롬프트 결합 로직 검증
+  - [ ] `apps/server/src/__tests__/rejectionRefinement.test.ts`: `rejectedHypotheses`에 담긴 문장이 다음 생성 프롬프트의 금지 제약(Negative Constraint)으로 정확히 주입되는지 검증
+  - [ ] `npm test -- --run` 실행으로 테스트 100% 통과 확인
 
 ### 2차 점검 제출 증빙 가이드 (3단계 확인법)
 1. **이번에 만든 것**: Hono 기반 무상태 추론 백엔드(`/api/infer`), System 1(`Jev` 타입 판별) + System 2(단일 문장 대필) 파이프라인, 취소선 의도(`THOUGHT_PIVOT`) 해석 및 `X` 마킹 오답 배제 재추론 루프.
@@ -141,6 +150,10 @@
 - [ ] **Step 3-3: PG사 결제 연동 및 단일 컨테이너(`Dockerfile`) 배포**
   - [ ] `PaymentModal.svelte` & `apps/server/src/routes/billing.ts`: 토스페이먼츠(또는 포트원 V2) 테스트 결제창 호출, 백엔드 결제 승인 금액 위변조 검증 및 Webhook 멱등성(Idempotency Key) 처리 구현
   - [ ] 루트 `Dockerfile` 작성: Multi-stage 빌드(`apps/web` 정적 빌드 산출물을 `apps/server` Hono가 서빙)로 단일 컨테이너 패키징 및 배포 URL 확보
+- [ ] **Step 3-4: Vitest 인증·결제·누적기 통합 테스트 작성 및 검증**
+  - [ ] `apps/server/src/__tests__/profileEnricher.test.ts`: `O` 확정 문장에서 키워드 추출 및 중복 없는 맥락 병합 로직 검증
+  - [ ] `apps/server/src/__tests__/billingWebhook.test.ts`: PG 웹훅 동일 이벤트 중복 수신 시 멱등성(Idempotency) 방어 테스트
+  - [ ] `npm test -- --run` 실행으로 전체 테스트 100% 통과 확인
 
 ### 최종 제출 증빙 가이드 (3단계 확인법)
 1. **이번에 만든 것**: OAuth 소셜 자동 로그인, 7일 드래그 시간표 온보딩, `O` 확정 기반 본인 정보 맥락 누적기(`profileEnricher`), PG 결제 승인/웹훅 검증 모듈, 단일 Docker 컨테이너 배포.
@@ -148,3 +161,51 @@
    * 1단계: 최초 로그인 및 7일 시간표 드래그 설정 후 새로고침 시, 로그인 창이나 UI 없이 즉시 백지 캔버스로 직행하는지 확인합니다.
    * 2단계: 단어 메모 후 AI 문장에 동그라미(`O`)를 쳐서 흡수시킨 뒤, 워터마크를 통해 `/desk`로 이동하여 **내 프로필 맥락에 방금 확정한 주제가 휘발되지 않고 누적 추가되었는지** 확인합니다.
    * 3단계: `/desk` 내 Pro 업그레이드/후원 메뉴에서 PG사 테스트 결제를 진행하고 결제 승인 검증 및 Pro 상태 전환이 완료되는지 확인합니다.
+
+---
+
+## 5. 마일스톤 공통 마감 거버넌스 프로토콜 (4-Step Gate)
+
+모든 마일스톤 세션 종료 전, 에이전트는 아래 4단계를 반드시 통과해야 세션을 마감할 수 있습니다.
+
+### Gate 1: 에이전트 자체 무결성 검증 (Self-Verification)
+터미널에서 아래 명령을 순차 실행하여 오류가 0건임을 확인합니다.
+1. `npm run check` (TypeScript 및 Svelte 컴파일 오류 0건)
+2. `npm test -- --run` (작성된 Vitest 단위/통합 테스트 100% PASS)
+3. `npm run build` (프로덕션 빌드 성공 및 dist 산출물 생성)
+4. `gitleaks protect --staged` (시크릿 누출 0건)
+
+### Gate 2: 사용자 수동 검증 가이드 제시 (User Acceptance Test)
+에이전트는 독단으로 마감하지 않고, 사용자에게 로컬 서버 실행 명령(`npm run dev`)과 함께 브라우저에서 직접 테스트해 볼 수 있는 **구체적인 3단계 시나리오와 디버그 플래그(`?fast=1`)**를 최종 응답에 명확히 안내해야 합니다.
+
+### Gate 3: 부트캠프 제출 양식 보고서 자동 생성 (`docs/submissions/`)
+에이전트는 해당 마일스톤의 커밋 로그와 실제 구현 내용을 기반으로, 부트캠프 제출 화면에 복사할 수 있는 보고서 파일(`docs/submissions/SUBMISSION_M{N}.md`)을 자동으로 작성하여 워크스페이스에 저장해야 합니다.
+
+* **보고서 파일 필수 포함 항목 (`SUBMISSION_M{N}.md`)**:
+  ```markdown
+  # 나의 앱 프로젝트 · {N}/3 (중간 점검 {N}차)
+
+  ### 이번에 만든 것
+  (실제 구현한 기능과 동작을 구체적으로 서술)
+
+  ### 확인하는 방법 · 3단계 이내
+  1. ...
+  2. ...
+  3. ...
+
+  ### 바뀐 점과 그 이유
+  (이전 계획 대비 수정한 내용과 기술적 이유 서술)
+
+  ### AI에게 맡긴 일과 내가 판단한 일
+  - 내가 판단한 일: (아키텍처 결정, 트레이드오프 선택, 제약 조건 등)
+  - AI에게 맡긴 일: (보일러플레이트 코드 작성, 수학 알고리즘 수식 구현, 테스트 코드 작성 등)
+
+  ### 다음에 할 일
+  (다음 마일스톤 작업 내용 서술)
+  ```
+
+### Gate 4: 원자적 커밋 및 Git 태그 발행
+모든 테스트와 보고서 생성이 끝나면 10개 이하의 파일로 커밋하고 마일스톤 태그를 발행합니다:
+* `git commit -m "feat(milestone-{N}): 마일스톤 {N} 구현 및 검증 완료"`
+* `git tag v0.{N}.0-m{N}`
+

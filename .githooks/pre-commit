@@ -53,8 +53,16 @@ fi
 
 # 6. TypeScript / Svelte 타입 무결성 검사 (루트 package.json 및 node_modules 존재 시)
 if [ -f "package.json" ] && [ -d "node_modules" ]; then
-  echo "[Hard Guard] Running workspace typecheck..."
+  echo "[Hard Guard] Running workspace typecheck (npm run check)..."
   npm run check --if-present
+fi
+
+# 7. Vitest 단위 테스트 회귀 방지 검사 (테스트 실패 시 커밋 원천 차단)
+if [ -f "package.json" ] && [ -d "node_modules" ]; then
+  if grep -q '"test"' package.json; then
+    echo "[Hard Guard] Running unit tests (npm test -- --run)..."
+    npm test -- --run
+  fi
 fi
 
 echo "[Hard Guard] All checks passed."
