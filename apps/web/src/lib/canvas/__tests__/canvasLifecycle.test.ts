@@ -186,24 +186,42 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     expect(engine.activeHypothesis!.isConfirmed).toBe(false);
   });
 
-  it('formatHandwrittenSentence는 긴 문장이라도 최대 3줄을 절대 초과하지 않고 고르게 분할해야 한다', () => {
-    const veryLongText = '하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 열하나 열둘 열셋 열넷 열다섯 열여섯';
-    const formatted = formatHandwrittenSentence(veryLongText, 3);
+  it('formatHandwrittenSentence는 불필요한 공백을 정돈하고 원본 어절 순서를 완벽히 보존해야 한다', () => {
+    const textWithSpaces = '  가상   DOM과    실시간  상태   동기화 로직  ';
+    const formatted = formatHandwrittenSentence(textWithSpaces);
 
-    const lines = formatted.split('\n');
-    expect(lines.length).toBeLessThanOrEqual(3);
-    expect(lines.length).toBe(3);
+    expect(formatted).toBe('가상 DOM과 실시간 상태 동기화 로직');
+  });
 
-    // 각 줄에 단어가 고르게 배분되었는지 확인 (단어 수 차이가 1개 이하)
-    const wordCounts = lines.map((l) => l.trim().split(/\s+/).length);
-    const maxWords = Math.max(...wordCounts);
-    const minWords = Math.min(...wordCounts);
-    expect(maxWords - minWords).toBeLessThanOrEqual(1);
+  it('activeHypothesis가 존재하는 동안에는 필기 증발에 의한 중복 가설 생성이 차단되어야 한다', () => {
+    let spawnCount = 0;
+    const engine = new CanvasLifecycleEngine({
+      onHypothesisSpawned: () => {
+        spawnCount++;
+      },
+    }, 'instant');
 
-    // 원본 단어 순서와 일치하는지 확인
-    const originalWords = veryLongText.trim().split(/\s+/);
-    const formattedWords = formatted.trim().split(/\s+/);
-    expect(formattedWords).toEqual(originalWords);
+    // 이미 활성 가설이 떠 있는 상태
+    engine.activeHypothesis = {
+      id: 'existing-hypo',
+      sentence: '기존 가설 문장',
+      bbox: [100, 100, 300, 50],
+      createdAt: 1000,
+      isConfirmed: false,
+      isRejected: false,
+    };
+
+    // 임의의 획 입력 및 포인터 업 (instant 모드: 600ms 후 증발)
+    engine.pointerDown({ x: 10, y: 10, t: 1000, pressure: 0.5 });
+    engine.pointerMove({ x: 50, y: 50, t: 1050, pressure: 0.5 });
+    engine.pointerUp(1100);
+
+    // instant 모드에서 700ms 경과하여 잉크 증발 처리 tick (1100 + 700 = 1800ms)
+    engine.tick(2000);
+
+    // activeHypothesis가 여전히 존재하므로 중복 생성이 차단되어 spawnCount는 0이어야 함
+    expect(spawnCount).toBe(0);
+    expect(engine.activeHypothesis.sentence).toBe('기존 가설 문장');
   });
 
   it('generateRandomTilt는 0도 부근 데드존([-0.7, +0.7])을 배제하고 확연한 기울기 각도를 반환해야 한다', () => {

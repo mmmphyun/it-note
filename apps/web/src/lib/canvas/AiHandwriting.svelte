@@ -149,20 +149,20 @@
                 filter 0.6s ease;
     z-index: 10;
     overflow: visible;
-    width: max-content;
-    max-width: 960px;
+    width: 480px;
+    max-width: 520px;
   }
 
   .tegaki-container {
     font-family: 'Nanum Pen Script', cursive, sans-serif;
     font-size: 32px;
-    line-height: 1.55;
+    line-height: 1.5;
+    letter-spacing: 0;
     color: #1e1e1e;
     word-break: keep-all;
-    white-space: pre-line; /* 어절 단위 줄바꿈(\n) 완벽 반영 */
     overflow: visible;
-    width: max-content;
-    max-width: 960px;
+    width: 100%;
+    text-align: left;
   }
 
   .stylus-pen-cursor {

@@ -25,35 +25,10 @@ export function generateRandomTilt(): number {
 }
 
 /**
- * 총 단어 수에 맞춰 1~3줄로 유동적 균등 분할 (최대 3줄 제약 엄수)
- * - 4단어 이하: 1줄
- * - 5~8단어: 2줄 균등 분할
- * - 9단어 이상: 3줄 균등 분할
+ * 텍스트 공백 정돈 (Tegaki HarfBuzz 셰이퍼가 CSS 너비에 따라 정상 자간으로 자동 개행)
  */
-export function formatHandwrittenSentence(sentence: string, maxLines = 3): string {
-  const words = sentence.trim().split(/\s+/).filter(Boolean);
-  const n = words.length;
-  if (n <= 4) return sentence;
-
-  const targetLines = Math.min(maxLines, n <= 8 ? 2 : 3);
-  const baseCount = Math.floor(n / targetLines);
-  let remainder = n % targetLines;
-
-  const lines: string[] = [];
-  let index = 0;
-
-  for (let lineIdx = 0; lineIdx < targetLines; lineIdx++) {
-    const take = baseCount + (remainder > 0 ? 1 : 0);
-    if (remainder > 0) remainder--;
-
-    const chunk = words.slice(index, index + take);
-    if (chunk.length > 0) {
-      lines.push(chunk.join(' '));
-    }
-    index += take;
-  }
-
-  return lines.join('\n');
+export function formatHandwrittenSentence(sentence: string): string {
+  return sentence.trim().replace(/\s+/g, ' ');
 }
 
 export interface ViewportBounds {
@@ -244,7 +219,8 @@ export class CanvasLifecycleEngine {
 
     if (decay.isEvaporated) {
       const cropped = extractCroppedStrokes(this.strokes);
-      if (cropped) {
+      // AI 가설 문장이 이미 표시 중인 동안에는 중복 재생성을 원천 차단
+      if (cropped && !this.activeHypothesis) {
         this.callbacks.onCropExtracted?.(cropped);
         this.spawnHypothesis(cropped.bbox, now);
       }
