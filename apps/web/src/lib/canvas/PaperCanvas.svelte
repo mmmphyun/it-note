@@ -216,12 +216,31 @@
     activeHypothesis = engine.activeHypothesis;
   }
 
+  function updateViewport() {
+    if (!containerEl || !engine) return;
+    engine.setViewport({
+      scrollX,
+      scrollY,
+      width: containerEl.clientWidth || window.innerWidth,
+      height: containerEl.clientHeight || window.innerHeight,
+    });
+  }
+
   function clampScroll() {
     if (!containerEl) return;
     const minX = -(CANVAS_WIDTH - containerEl.clientWidth);
     const minY = -(CANVAS_HEIGHT - containerEl.clientHeight);
     scrollX = Math.min(0, Math.max(minX, scrollX));
     scrollY = Math.min(0, Math.max(minY, scrollY));
+    updateViewport();
+  }
+
+  function handleWheel(e: WheelEvent) {
+    // 마우스 휠 및 트랙패드로 캔버스 자유 패닝 (2400x1800 무한 종이 탐색)
+    if (e.ctrlKey) return;
+    scrollX -= e.deltaX;
+    scrollY -= e.deltaY;
+    clampScroll();
   }
 
   onMount(() => {
@@ -258,6 +277,9 @@
       renderStrokes(1.0);
     }
 
+    updateViewport();
+    window.addEventListener('resize', clampScroll);
+
     // 0초 모드(?fast=0): 사용자가 필기하지 않고 대기할 경우 1.2초 후 AI가 초기 메모 시연
     if (speedMode === 'instant') {
       setTimeout(() => {
@@ -272,6 +294,7 @@
 
     return () => {
       cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', clampScroll);
       if (watermarkHoldTimer) clearTimeout(watermarkHoldTimer);
     };
   });
@@ -287,6 +310,7 @@
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
   onpointercancel={handlePointerUp}
+  onwheel={handleWheel}
 >
   <div
     class="canvas-scroll-container"

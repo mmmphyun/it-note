@@ -18,30 +18,82 @@ export function generateRandomTilt(minDeg = -1.8, maxDeg = 1.4): number {
 }
 
 /**
- * 기계적인 일자형 긴 텍스트를 방지하고, 실제 손글씨처럼 2~4단어 단위의 불규칙한 줄바꿈(\n) 적용
+ * 총 단어 수에 맞춰 1~3줄로 유동적 균등 분할 (최대 3줄 제약 엄수)
+ * - 4단어 이하: 1줄
+ * - 5~8단어: 2줄 균등 분할
+ * - 9단어 이상: 3줄 균등 분할
  */
-export function formatHandwrittenSentence(sentence: string): string {
-  const words = sentence.trim().split(/\s+/);
-  if (words.length <= 3) return sentence;
+export function formatHandwrittenSentence(sentence: string, maxLines = 3): string {
+  const words = sentence.trim().split(/\s+/).filter(Boolean);
+  const n = words.length;
+  if (n <= 4) return sentence;
+
+  const targetLines = Math.min(maxLines, n <= 8 ? 2 : 3);
+  const baseCount = Math.floor(n / targetLines);
+  let remainder = n % targetLines;
 
   const lines: string[] = [];
-  let currentWords: string[] = [];
-  let targetCount = Math.floor(Math.random() * 2) + 3; // 3 or 4 words
+  let index = 0;
 
-  for (const word of words) {
-    currentWords.push(word);
-    if (currentWords.length >= targetCount) {
-      lines.push(currentWords.join(' '));
-      currentWords = [];
-      targetCount = Math.floor(Math.random() * 2) + 2; // 2 or 3 words
+  for (let lineIdx = 0; lineIdx < targetLines; lineIdx++) {
+    const take = baseCount + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder--;
+
+    const chunk = words.slice(index, index + take);
+    if (chunk.length > 0) {
+      lines.push(chunk.join(' '));
     }
-  }
-
-  if (currentWords.length > 0) {
-    lines.push(currentWords.join(' '));
+    index += take;
   }
 
   return lines.join('\n');
+}
+
+export interface ViewportBounds {
+  scrollX: number;
+  scrollY: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * AI 가설 문장이 사용자의 현재 가시 화면(Viewport) 밖으로 잘리지 않고
+ * 100% 화면 내에 안착하도록 위치를 보정 (우측 우선 -> 하단 전환 -> 뷰포트 클램핑)
+ */
+export function calculateVisibleHypothesisBbox(
+  cropBbox: [number, number, number, number], // [minX, minY, maxX, maxY]
+  viewport: ViewportBounds,
+  boxWidth = 480,
+  boxHeight = 110
+): [number, number, number, number] {
+  const [minX, minY, maxX, maxY] = cropBbox;
+
+  // 가시 영역 계산 (캔버스 좌표계 기준)
+  const visMinX = -viewport.scrollX;
+  const visMinY = -viewport.scrollY;
+  const visMaxX = visMinX + viewport.width;
+  const visMaxY = visMinY + viewport.height;
+
+  // 1. 기본 위치: 필기 획의 우측 여백 (+36px)
+  let candidateX = maxX + 36;
+  let candidateY = minY;
+
+  // 2. 우측 화면 밖으로 넘칠 경우: 획의 아래쪽(+20px)으로 전환
+  if (candidateX + boxWidth > visMaxX - 24) {
+    candidateX = Math.max(visMinX + 24, minX);
+    candidateY = maxY + 24;
+  }
+
+  // 3. 하단 화면 밖으로 넘칠 경우: 뷰포트 내부로 상향 보정
+  if (candidateY + boxHeight > visMaxY - 24) {
+    candidateY = Math.max(visMinY + 24, visMaxY - boxHeight - 24);
+  }
+
+  // 4. 좌우 최종 안전 클램핑 (화면 경계 이탈 100% 차단)
+  const clampedX = Math.max(visMinX + 24, Math.min(visMaxX - boxWidth - 24, candidateX));
+  const clampedY = Math.max(visMinY + 24, Math.min(visMaxY - boxHeight - 24, candidateY));
+
+  return [clampedX, clampedY, boxWidth, boxHeight];
 }
 
 export class CanvasLifecycleEngine {
@@ -126,6 +178,8 @@ export class CanvasLifecycleEngine {
     this.lastPointerUpTime = now;
   }
 
+  currentViewport: ViewportBounds = { scrollX: 0, scrollY: 0, width: 1200, height: 800 };
+
   tick(now: number): DecayState {
     if (this.lastPointerUpTime === null || this.strokes.length === 0 || this.currentStroke !== null) {
       return { opacity: 1, isEvaporated: false, phase: 'idle' };
@@ -147,15 +201,22 @@ export class CanvasLifecycleEngine {
     return decay;
   }
 
+  setViewport(viewport: ViewportBounds): void {
+    this.currentViewport = viewport;
+  }
+
   spawnHypothesis(bbox: [number, number, number, number], now: number): void {
     const rawSentence = this.mockSentences[this.mockSentenceIndex % this.mockSentences.length];
     const formattedSentence = formatHandwrittenSentence(rawSentence);
     const tiltDeg = generateRandomTilt();
 
+    // 뷰포트 가시 영역 보정: 사용자가 보고 있는 화면 밖으로 잘림 방지
+    const adjustedBbox = calculateVisibleHypothesisBbox(bbox, this.currentViewport, 480, 105);
+
     const hypothesis: AiHypothesis = {
       id: `hypo-${now}`,
       sentence: formattedSentence,
-      bbox: [Math.min(1800, bbox[2] + 40), bbox[1], 540, 95],
+      bbox: adjustedBbox,
       createdAt: now,
       isConfirmed: false,
       isRejected: false,
