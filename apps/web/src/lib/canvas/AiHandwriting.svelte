@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { TegakiEngine } from 'tegaki/core';
   import nanumFont from 'tegaki/fonts/nanum-pen-script';
 
@@ -22,8 +21,12 @@
   let containerEl = $state<HTMLDivElement | null>(null);
   let engine = $state<TegakiEngine | null>(null);
 
-  onMount(() => {
+  $effect(() => {
     if (!containerEl) return;
+
+    // 이전 엔진 정리 및 컨테이너 비우기 (중복 텍스트 방지)
+    engine?.destroy();
+    containerEl.innerHTML = '';
 
     try {
       engine = new TegakiEngine(containerEl, {
@@ -54,9 +57,7 @@
   class:smoke-out={isRejected}
   style="left: {bbox[0]}px; top: {bbox[1]}px; width: {bbox[2]}px; min-height: {bbox[3]}px;"
 >
-  <div bind:this={containerEl} class="tegaki-container">
-    {sentence}
-  </div>
+  <div bind:this={containerEl} class="tegaki-container"></div>
 </div>
 
 <style>
