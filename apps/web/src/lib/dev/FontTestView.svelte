@@ -521,12 +521,14 @@
     margin-left: -3px;
     margin-top: -35px;
     will-change: transform;
-    filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.12));
-    transition: filter 0.1s ease;
+    opacity: 0.88;
+    filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.12)) blur(0.2px);
+    transition: filter 0.1s ease, opacity 0.15s ease;
   }
 
   :global(.stylus-pen-cursor.airborne) {
-    filter: drop-shadow(2px 5px 4px rgba(0, 0, 0, 0.18));
+    opacity: 0.78;
+    filter: drop-shadow(2px 5px 4px rgba(0, 0, 0, 0.16)) blur(0.4px);
   }
 
   .pen-svg {

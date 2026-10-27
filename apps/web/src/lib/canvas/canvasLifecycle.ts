@@ -11,10 +11,17 @@ export interface CanvasLifecycleCallbacks {
 }
 
 /**
- * 손글씨 특유의 자연스러운 미세 회전 각도 산출 (-1.8도 ~ +1.4도)
+ * 손글씨 특유의 확연한 아날로그 기울기 산출 (0도 부근 데드존 [-0.7°, +0.7°] 배제)
+ * - 음수 기울기: -2.4° ~ -0.8° (우하향/좌상향)
+ * - 양수 기울기: +0.8° ~ +2.2° (우상향)
  */
-export function generateRandomTilt(minDeg = -1.8, maxDeg = 1.4): number {
-  return Number((minDeg + Math.random() * (maxDeg - minDeg)).toFixed(2));
+export function generateRandomTilt(): number {
+  const isPositive = Math.random() >= 0.5;
+  if (isPositive) {
+    return Number((0.8 + Math.random() * 1.4).toFixed(2));
+  } else {
+    return Number((-2.4 + Math.random() * 1.6).toFixed(2));
+  }
 }
 
 /**
@@ -105,6 +112,10 @@ export class CanvasLifecycleEngine {
   rejectedHypotheses: string[] = [];
   speedMode: SpeedMode = 'normal';
   callbacks: CanvasLifecycleCallbacks;
+  currentViewport: ViewportBounds = { scrollX: 0, scrollY: 0, width: 1200, height: 800 };
+
+  // AI 문장 위 O/X 마킹 누적 버퍼 (다중 획 교차 인식 및 오인식 무한 재작성 원천 차단)
+  hypothesisGestureStrokes: Point[][] = [];
 
   private mockSentenceIndex = 0;
   private mockSentences = [
@@ -142,32 +153,50 @@ export class CanvasLifecycleEngine {
     // AI 문장 위 O/X 마킹 판정
     if (this.activeHypothesis && !this.activeHypothesis.isConfirmed && !this.activeHypothesis.isRejected) {
       const points: Point[] = this.currentStroke.points.map((p) => ({ x: p.x, y: p.y }));
-      const gesture = recognizeOxGesture([points], this.activeHypothesis.bbox);
+      const [bx, by, bw, bh] = this.activeHypothesis.bbox;
+      const margin = 100;
+      const isNear = points.some(
+        (p) => p.x >= bx - margin && p.x <= bx + bw + margin && p.y >= by - margin && p.y <= by + bh + margin
+      );
 
-      if (gesture === 'O') {
-        this.activeHypothesis.isConfirmed = true;
-        const confirmed: ConfirmedNote = {
-          id: `confirmed-${now}`,
-          sentence: this.activeHypothesis.sentence,
-          confirmedAt: now,
-          keywords: ['Svelte 5', 'Hono', 'Zero-UI'],
-          sourceBBox: this.activeHypothesis.bbox,
-        };
-        this.confirmedNotes.push(confirmed);
-        this.callbacks.onHypothesisConfirmed?.(confirmed);
-        this.currentStroke = null;
-        return;
-      }
+      if (isNear) {
+        this.hypothesisGestureStrokes.push(points);
+        const gesture = recognizeOxGesture(this.hypothesisGestureStrokes, this.activeHypothesis.bbox);
 
-      if (gesture === 'X') {
-        this.activeHypothesis.isRejected = true;
-        this.rejectedHypotheses.push(this.activeHypothesis.sentence);
-        this.callbacks.onHypothesisRejected?.(this.activeHypothesis);
+        if (gesture === 'O') {
+          this.activeHypothesis.isConfirmed = true;
+          this.hypothesisGestureStrokes = [];
+          const confirmed: ConfirmedNote = {
+            id: `confirmed-${now}`,
+            sentence: this.activeHypothesis.sentence,
+            confirmedAt: now,
+            keywords: ['Svelte 5', 'Hono', 'Zero-UI'],
+            sourceBBox: this.activeHypothesis.bbox,
+          };
+          this.confirmedNotes.push(confirmed);
+          this.callbacks.onHypothesisConfirmed?.(confirmed);
+          this.currentStroke = null;
+          return;
+        }
 
-        // 다음 대안 문장 생성
-        const prevBbox = this.activeHypothesis.bbox;
-        this.mockSentenceIndex++;
-        this.spawnHypothesis(prevBbox, now);
+        if (gesture === 'X') {
+          this.activeHypothesis.isRejected = true;
+          this.hypothesisGestureStrokes = [];
+          this.rejectedHypotheses.push(this.activeHypothesis.sentence);
+          this.callbacks.onHypothesisRejected?.(this.activeHypothesis);
+
+          // 다음 대안 문장 생성
+          const prevBbox = this.activeHypothesis.bbox;
+          this.mockSentenceIndex++;
+          this.spawnHypothesis(prevBbox, now);
+          this.currentStroke = null;
+          return;
+        }
+
+        // 제스처 판정 대기 중(예: X의 1번째 획): 일반 필기 획에 넣지 않고 보류하여 불필요한 재작성 루프 차단
+        if (this.hypothesisGestureStrokes.length > 3) {
+          this.hypothesisGestureStrokes = [];
+        }
         this.currentStroke = null;
         return;
       }
@@ -177,8 +206,6 @@ export class CanvasLifecycleEngine {
     this.currentStroke = null;
     this.lastPointerUpTime = now;
   }
-
-  currentViewport: ViewportBounds = { scrollX: 0, scrollY: 0, width: 1200, height: 800 };
 
   tick(now: number): DecayState {
     if (this.lastPointerUpTime === null || this.strokes.length === 0 || this.currentStroke !== null) {

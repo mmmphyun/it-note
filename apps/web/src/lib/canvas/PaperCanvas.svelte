@@ -39,6 +39,11 @@
   let panStartX = 0;
   let panStartY = 0;
 
+  // 마우스 휠클릭 / 우클릭 패닝 상태
+  let isMousePanning = false;
+  let mousePanStartX = 0;
+  let mousePanStartY = 0;
+
   // 애니메이션 프레임 루프 및 더티 렌더링 추적
   let animationFrameId: number;
   let lastRenderedOpacity = -1;
@@ -145,6 +150,14 @@
   }
 
   function handlePointerDown(e: PointerEvent) {
+    // 휠클릭 (button === 1) 또는 우클릭 (button === 2) 시 마우스 패닝 시작
+    if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2)) {
+      isMousePanning = true;
+      mousePanStartX = e.clientX - scrollX;
+      mousePanStartY = e.clientY - scrollY;
+      return;
+    }
+
     if (e.pointerType === 'touch') {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (activePointers.size >= 2) {
@@ -176,6 +189,13 @@
   }
 
   function handlePointerMove(e: PointerEvent) {
+    if (isMousePanning) {
+      scrollX = e.clientX - mousePanStartX;
+      scrollY = e.clientY - mousePanStartY;
+      clampScroll();
+      return;
+    }
+
     if (e.pointerType === 'touch' && isPanning) {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (activePointers.size >= 2) {
@@ -205,6 +225,11 @@
   }
 
   function handlePointerUp(e: PointerEvent) {
+    if (isMousePanning) {
+      isMousePanning = false;
+      return;
+    }
+
     if (e.pointerType === 'touch') {
       activePointers.delete(e.pointerId);
       if (activePointers.size < 2) {
@@ -311,6 +336,7 @@
   onpointerup={handlePointerUp}
   onpointercancel={handlePointerUp}
   onwheel={handleWheel}
+  oncontextmenu={(e) => e.preventDefault()}
 >
   <div
     class="canvas-scroll-container"

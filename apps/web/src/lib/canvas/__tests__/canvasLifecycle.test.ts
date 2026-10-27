@@ -204,12 +204,49 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     expect(formattedWords).toEqual(originalWords);
   });
 
-  it('generateRandomTilt는 지정된 범위 내의 자연스러운 기울기 각도를 반환해야 한다', () => {
-    for (let i = 0; i < 20; i++) {
-      const tilt = generateRandomTilt(-1.8, 1.4);
-      expect(tilt).toBeGreaterThanOrEqual(-1.8);
-      expect(tilt).toBeLessThanOrEqual(1.4);
+  it('generateRandomTilt는 0도 부근 데드존([-0.7, +0.7])을 배제하고 확연한 기울기 각도를 반환해야 한다', () => {
+    for (let i = 0; i < 30; i++) {
+      const tilt = generateRandomTilt();
+      // 절댓값이 최소 0.7 이상이어야 함 (0도 부근 평평한 수평 배제)
+      expect(Math.abs(tilt)).toBeGreaterThanOrEqual(0.7);
+      expect(Math.abs(tilt)).toBeLessThanOrEqual(2.5);
     }
+  });
+
+  it('AI 문장 위에서 2개 획으로 X를 그렸을 때 정상 기각되고 불필요한 새 문장 루프가 방지되어야 한다', () => {
+    let rejectedCount = 0;
+    const engine = new CanvasLifecycleEngine({
+      onHypothesisRejected: () => {
+        rejectedCount++;
+      },
+    }, 'instant');
+
+    engine.activeHypothesis = {
+      id: 'test-hypo-2',
+      sentence: '가설 2번 문장',
+      bbox: [200, 200, 400, 80],
+      createdAt: 1000,
+      isConfirmed: false,
+      isRejected: false,
+    };
+
+    // 1번째 짧은 대각선 획 (\ - 단독으로는 취소선 폭 미충족)
+    engine.pointerDown({ x: 320, y: 220, t: 2000 });
+    engine.pointerMove({ x: 360, y: 260, t: 2050 });
+    engine.pointerUp(2100);
+
+    // 1번째 획 후: 일반 strokes에 들어가지 않고 제스처 버퍼에 보류되므로 strokes 길이는 0 유지
+    expect(engine.strokes.length).toBe(0);
+    expect(rejectedCount).toBe(0);
+
+    // 2번째 짧은 대각선 획 (/ - 1번째 획과 정확히 교차)
+    engine.pointerDown({ x: 320, y: 260, t: 2200 });
+    engine.pointerMove({ x: 360, y: 220, t: 2250 });
+    engine.pointerUp(2300);
+
+    // 2획 교차로 X 인식 및 기각 확인
+    expect(rejectedCount).toBe(1);
+    expect(engine.strokes.length).toBe(0); // 일반 필기 증발로 잘못 전이되지 않음
   });
 
   it('calculateVisibleHypothesisBbox는 획이 화면 우측 끝에 있어도 가시 영역 내로 클램핑해야 한다', () => {

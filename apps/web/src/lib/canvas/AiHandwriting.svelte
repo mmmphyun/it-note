@@ -161,13 +161,15 @@
     margin-left: -3px; /* 펜촉 접점 (3, 35) 정밀 보정 */
     margin-top: -35px;
     will-change: transform;
-    filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.12));
-    transition: filter 0.1s ease;
+    opacity: 0.88; /* 고속 이동 시 시각적 산만함을 차단하는 은은한 반투명화 */
+    filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.12)) blur(0.2px);
+    transition: filter 0.1s ease, opacity 0.15s ease;
   }
 
-  /* 공중 이동(Air Glide) 중 펜이 종이에서 살짝 들렸을 때의 입체 그림자 */
+  /* 공중 이동(Air Glide) 중 펜이 종이에서 살짝 들렸을 때의 소프트 입체 블러 */
   :global(.stylus-pen-cursor.airborne) {
-    filter: drop-shadow(2px 5px 4px rgba(0, 0, 0, 0.18));
+    opacity: 0.78;
+    filter: drop-shadow(2px 5px 4px rgba(0, 0, 0, 0.16)) blur(0.4px);
   }
 
   .pen-svg {
