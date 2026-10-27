@@ -127,6 +127,15 @@ describe('gestureRecognizer - O / X 펜 기하학 제스처 판별식', () => {
       expect(recognizeOxGesture([zigzag], targetBbox)).toBe('X');
     });
 
+    it('단독 대각선 획(X의 1번째 획)은 2번째 교차 획 없이 단독으로 X로 성급하게 판정되지 않아야 한다', () => {
+      // 대각선 획 (\): 가로폭 160px, 세로폭 140px (높이 비율 > 35%)
+      const diagonalSlash: Point[] = [
+        { x: 150, y: 100 },
+        { x: 310, y: 240 },
+      ];
+      expect(recognizeOxGesture([diagonalSlash], targetBbox)).toBe('NONE');
+    });
+
     it('문장 폭의 40% 미만인 짧은 필기 획은 X로 오인식되지 않아야 한다', () => {
       const shortStroke: Point[] = [
         { x: 120, y: 140 },

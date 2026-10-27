@@ -92,7 +92,11 @@ export class CanvasLifecycleEngine {
   // AI 문장 위 O/X 마킹 누적 버퍼 및 입력 멈춤 감지 유예 타이머 (다중 획 및 단어 인식 지원)
   hypothesisGestureStrokes: Point[][] = [];
   lastGesturePointerUpTime: number | null = null;
-  gestureIdleGraceMs: number = 700;
+  gestureIdleGraceMs: number = 1200;
+
+  // 기각 시 스모크아웃 애니메이션(650ms) 후 다음 대안 문장 지연 생성 타이머
+  pendingNextHypothesisTime: number | null = null;
+  pendingNextHypothesisBbox: [number, number, number, number] | null = null;
 
   private mockSentenceIndex = 0;
   private mockSentences = [
@@ -151,10 +155,9 @@ export class CanvasLifecycleEngine {
       this.rejectedHypotheses.push(this.activeHypothesis.sentence);
       this.callbacks.onHypothesisRejected?.(this.activeHypothesis);
 
-      // 다음 대안 문장 생성
-      const prevBbox = this.activeHypothesis.bbox;
-      this.mockSentenceIndex++;
-      this.spawnHypothesis(prevBbox, now);
+      // 650ms 동안 스모크아웃(연기 소멸) 애니메이션을 온전히 표출한 뒤 대안 문장 생성
+      this.pendingNextHypothesisTime = now + 650;
+      this.pendingNextHypothesisBbox = this.activeHypothesis.bbox;
       return;
     }
   }
@@ -174,7 +177,7 @@ export class CanvasLifecycleEngine {
       if (isNear) {
         this.hypothesisGestureStrokes.push(points);
 
-        // 사용자 입력 멈춤 감지를 위한 700ms 유예 타이머 시작 (다중 획 X, '응', '맞아', '아니' 등)
+        // 사용자 입력 멈춤 감지를 위한 1200ms 유예 타이머 시작 (다중 획 X, '응', '맞아', '아니' 등)
         this.lastGesturePointerUpTime = now;
         this.currentStroke = null;
         return;
@@ -187,6 +190,15 @@ export class CanvasLifecycleEngine {
   }
 
   tick(now: number): DecayState {
+    // 0. 기각 후 지연된 대안 문장 생성 타이머 평가 (650ms 스모크아웃 보장)
+    if (this.pendingNextHypothesisTime !== null && now >= this.pendingNextHypothesisTime) {
+      this.pendingNextHypothesisTime = null;
+      this.mockSentenceIndex++;
+      const bbox = this.pendingNextHypothesisBbox ?? [180, 140, 420, 200];
+      this.pendingNextHypothesisBbox = null;
+      this.spawnHypothesis(bbox, now);
+    }
+
     // 1. AI 문장 제스처/단어 다중 획 입력 유예 타이머 평가 (사용자 입력이 멈춘 후 최종 판정)
     if (
       this.lastGesturePointerUpTime !== null &&

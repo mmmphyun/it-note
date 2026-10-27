@@ -25,6 +25,7 @@
   let penEl = $state<HTMLDivElement | null>(null);
   let engine: TegakiEngine | null = null;
   let lastSentenceRendered = '';
+  let isTilted = $state(false);
 
   $effect(() => {
     if (!containerEl) return;
@@ -33,6 +34,7 @@
     lastSentenceRendered = sentence;
     engine?.destroy();
     containerEl.innerHTML = '';
+    isTilted = false; // Tegaki가 DOM Range를 계측하는 동안에는 0도 수평 상태를 유지하여 자간·행간 왜곡 원천 차단
 
     if (penEl) {
       penEl.style.display = 'none';
@@ -76,9 +78,15 @@
           onComplete?.();
         },
       });
+
+      // 초기 Range 계측 및 HarfBuzz 셰이핑 배치 완료 직후 다음 프레임에 시각적 아날로그 기울기 적용
+      requestAnimationFrame(() => {
+        isTilted = true;
+      });
     } catch {
       if (containerEl) containerEl.textContent = sentence;
       if (penEl) penEl.style.display = 'none';
+      isTilted = true;
       onComplete?.();
     }
 
@@ -100,7 +108,7 @@
     top: {bbox[1]}px;
     min-width: {bbox[2]}px;
     min-height: {bbox[3]}px;
-    --tilt: {tiltDeg}deg;
+    --tilt: {isTilted ? tiltDeg : 0}deg;
   "
 >
   <div bind:this={containerEl} class="tegaki-container"></div>
@@ -144,8 +152,7 @@
     box-shadow: none;
     transform: rotate(var(--tilt, 0deg));
     transform-origin: top left;
-    transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
-                opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transition: opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
                 filter 0.6s ease;
     z-index: 10;
     overflow: visible;
@@ -195,6 +202,9 @@
     opacity: 0;
     transform: rotate(var(--tilt, 0deg)) scale(0.92) translateY(8px);
     filter: blur(2px);
+    transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+                filter 0.6s ease;
   }
 
   /* X 마킹 시 연기처럼 사라지는 Smoke-out 애니메이션 */
@@ -202,5 +212,8 @@
     opacity: 0;
     transform: rotate(var(--tilt, 0deg)) translateY(-16px) scale(1.05);
     filter: blur(5px);
+    transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+                filter 0.6s ease;
   }
 </style>

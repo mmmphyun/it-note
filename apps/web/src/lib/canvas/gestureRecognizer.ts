@@ -155,17 +155,19 @@ export function recognizeOxGesture(
     const L = pathLength(stroke);
     if (L < 15) return 'NONE';
 
-    const [minX, , maxX] = getBoundingBox(stroke);
+    const [minX, minY, maxX, maxY] = getBoundingBox(stroke);
     const strokeWidth = maxX - minX;
+    const strokeHeight = maxY - minY;
     const targetWidth = targetBbox[2];
 
-    const spansTarget = strokeWidth >= targetWidth * 0.4;
+    // 수평 취소선: 가로 폭이 타깃 너비의 40% 이상이고, 세로 높이가 가로 폭의 35% 이하인 수평 획
+    const isHorizontalStrikethrough = strokeWidth >= targetWidth * 0.4 && strokeHeight <= strokeWidth * 0.35;
     const startEndDist = distance(stroke[0], stroke[stroke.length - 1]);
     const linearity = startEndDist / L;
     const reversals = countDirectionReversals(stroke);
 
-    const spansTargetAndStraight = spansTarget && linearity > 0.75;
-    const isZigzagScratch = reversals >= 3;
+    const spansTargetAndStraight = isHorizontalStrikethrough && linearity > 0.75;
+    const isZigzagScratch = reversals >= 3 && strokeWidth >= 60;
 
     if (spansTargetAndStraight || isZigzagScratch) {
       return 'X';

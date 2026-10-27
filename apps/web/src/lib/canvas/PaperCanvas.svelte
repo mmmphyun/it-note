@@ -312,10 +312,8 @@
             activeHypothesis = null;
           }, 800);
         },
-        onHypothesisRejected: () => {
-          setTimeout(() => {
-            activeHypothesis = engine.activeHypothesis;
-          }, 700);
+        onHypothesisRejected: (hypo) => {
+          activeHypothesis = hypo;
         },
       },
       speedMode
