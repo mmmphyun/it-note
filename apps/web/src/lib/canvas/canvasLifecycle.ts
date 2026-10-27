@@ -60,8 +60,11 @@ export function calculateVisibleHypothesisBbox(
   let candidateX = maxX + 36;
   let candidateY = minY;
 
-  // 2. 우측 화면 밖으로 넘칠 경우: 획의 아래쪽(+20px)으로 전환
-  if (candidateX + boxWidth > visMaxX - 24) {
+  // 화면 우측 가용 폭 계산
+  const availableRight = visMaxX - candidateX - 24;
+
+  // 2. 우측 화면 밖으로 넘칠 경우: 획의 아래쪽(+24px)으로 전환
+  if (availableRight < 380) {
     candidateX = Math.max(visMinX + 24, minX);
     candidateY = maxY + 24;
   }
@@ -71,11 +74,14 @@ export function calculateVisibleHypothesisBbox(
     candidateY = Math.max(visMinY + 24, visMaxY - boxHeight - 24);
   }
 
-  // 4. 좌우 최종 안전 클램핑 (화면 경계 이탈 100% 차단)
-  const clampedX = Math.max(visMinX + 24, Math.min(visMaxX - boxWidth - 24, candidateX));
+  // 4. 가용 폭에 맞춘 동적 너비 산출 (기본 480px, 최대 가용 공간에 맞춤)
+  const dynamicWidth = Math.max(400, Math.min(boxWidth, visMaxX - candidateX - 24));
+
+  // 5. 좌우 최종 안전 클램핑 (화면 경계 이탈 100% 차단)
+  const clampedX = Math.max(visMinX + 24, Math.min(visMaxX - dynamicWidth - 24, candidateX));
   const clampedY = Math.max(visMinY + 24, Math.min(visMaxY - boxHeight - 24, candidateY));
 
-  return [clampedX, clampedY, boxWidth, boxHeight];
+  return [clampedX, clampedY, dynamicWidth, boxHeight];
 }
 
 export class CanvasLifecycleEngine {
@@ -92,7 +98,7 @@ export class CanvasLifecycleEngine {
   // AI 문장 위 O/X 마킹 누적 버퍼 및 입력 멈춤 감지 유예 타이머 (다중 획 및 단어 인식 지원)
   hypothesisGestureStrokes: Point[][] = [];
   lastGesturePointerUpTime: number | null = null;
-  gestureIdleGraceMs: number = 1200;
+  gestureIdleGraceMs: number = 1500;
 
   // 기각 시 스모크아웃 애니메이션(650ms) 후 다음 대안 문장 지연 생성 타이머
   pendingNextHypothesisTime: number | null = null;
@@ -165,23 +171,15 @@ export class CanvasLifecycleEngine {
   pointerUp(now: number): void {
     if (!this.currentStroke) return;
 
-    // AI 문장 위 O/X 마킹 및 다양한 다중 획 의사표현 수집
+    // AI 문장 활성화 중: 사용자의 모든 펜 입력은 AI 피드백/의사표현 버퍼로 누적 수집 (반경 제한 폐기)
     if (this.activeHypothesis && !this.activeHypothesis.isConfirmed && !this.activeHypothesis.isRejected) {
       const points: Point[] = this.currentStroke.points.map((p) => ({ x: p.x, y: p.y }));
-      const [bx, by, bw, bh] = this.activeHypothesis.bbox;
-      const margin = 100;
-      const isNear = points.some(
-        (p) => p.x >= bx - margin && p.x <= bx + bw + margin && p.y >= by - margin && p.y <= by + bh + margin
-      );
+      this.hypothesisGestureStrokes.push(points);
 
-      if (isNear) {
-        this.hypothesisGestureStrokes.push(points);
-
-        // 사용자 입력 멈춤 감지를 위한 1200ms 유예 타이머 시작 (다중 획 X, '응', '맞아', '아니' 등)
-        this.lastGesturePointerUpTime = now;
-        this.currentStroke = null;
-        return;
-      }
+      // 사용자 입력 멈춤 감지를 위한 1500ms 유예 타이머 시작 (다중 획 X, '응', '맞아', '아니' 등)
+      this.lastGesturePointerUpTime = now;
+      this.currentStroke = null;
+      return;
     }
 
     this.strokes.push(this.currentStroke);
@@ -199,7 +197,7 @@ export class CanvasLifecycleEngine {
       this.spawnHypothesis(bbox, now);
     }
 
-    // 1. AI 문장 제스처/단어 다중 획 입력 유예 타이머 평가 (사용자 입력이 멈춘 후 최종 판정)
+    // 1. AI 문장 제스처/단어 다중 획 입력 유예 타이머 평가 (사용자 입력이 1.5초간 멈춘 후 최종 판정)
     if (
       this.lastGesturePointerUpTime !== null &&
       this.hypothesisGestureStrokes.length > 0 &&
@@ -214,14 +212,16 @@ export class CanvasLifecycleEngine {
 
         if (gesture === 'O' || gesture === 'X') {
           this.executeHypothesisAction(gesture, now);
-        } else {
-          // 제스처가 아닌 경우: 마일스톤 2 의도 분류기(HTR) 대상
-          this.hypothesisGestureStrokes = [];
         }
       }
     }
 
-    // 2. 일반 메모 잉크 증발 타이머
+    // 2. AI 가설이 활성화 중인 동안에는 일반 메모 잉크 증발 및 조기 재작성 전면 동결
+    if (this.activeHypothesis && !this.activeHypothesis.isConfirmed && !this.activeHypothesis.isRejected) {
+      return { opacity: 1, isEvaporated: false, phase: 'idle' };
+    }
+
+    // 3. 일반 메모 잉크 증발 타이머
     if (this.lastPointerUpTime === null || this.strokes.length === 0 || this.currentStroke !== null) {
       return { opacity: 1, isEvaporated: false, phase: 'idle' };
     }

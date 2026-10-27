@@ -144,7 +144,7 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
       });
     }
     engine.pointerUp(3000);
-    engine.tick(4300); // 1200ms 유예 시간 경과 후 최종 판정 (3000 + 1200 = 4200ms)
+    engine.tick(4600); // 1500ms 유예 시간 경과 후 최종 판정 (3000 + 1500 = 4500ms)
 
     // 흡수(isConfirmed = true) 상태 전이 및 확정 노트 목록 보존 확인
     expect(engine.activeHypothesis!.isConfirmed).toBe(true);
@@ -176,7 +176,7 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     engine.pointerMove({ x: 300, y: 240, t: 2100 });
     engine.pointerMove({ x: 420, y: 240, t: 2200 });
     engine.pointerUp(2300);
-    engine.tick(3600); // 1200ms 유예 시간 경과 후 기각 판정 (2300 + 1200 = 3500ms)
+    engine.tick(3900); // 1500ms 유예 시간 경과 후 기각 판정 (2300 + 1500 = 3800ms)
 
     // 기각 및 스모크아웃 상태 확인
     expect(rejectedCount).toBe(1);
@@ -184,8 +184,8 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     expect(engine.activeHypothesis).not.toBeNull();
     expect(engine.activeHypothesis!.isRejected).toBe(true);
 
-    // 650ms 스모크아웃 경과 후(3600 + 650 = 4250ms) 새 문장 생성 확인
-    engine.tick(4300);
+    // 650ms 스모크아웃 경과 후(3900 + 650 = 4550ms) 새 문장 생성 확인
+    engine.tick(4600);
     expect(engine.activeHypothesis!.isRejected).toBe(false);
     expect(engine.activeHypothesis!.sentence).not.toBe('가설 1번 문장');
     expect(engine.activeHypothesis!.isConfirmed).toBe(false);
@@ -269,22 +269,22 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     engine.pointerMove({ x: 360, y: 220, t: 2250 });
     engine.pointerUp(2300);
 
-    // 2번째 획 직후(200ms 경과): 아직 유예 시간(1200ms) 미만이므로 성급하게 판정하지 않고 대기
+    // 2번째 획 직후(200ms 경과): 아직 유예 시간(1500ms) 미만이므로 성급하게 판정하지 않고 대기
     engine.tick(2500);
     expect(rejectedCount).toBe(0);
 
-    // 1200ms 유예 시간 경과(3600ms 시점): 사용자 입력이 멈춘 것을 감지하고 비로소 최종 X 기각 판정!
-    engine.tick(3600);
+    // 1500ms 유예 시간 경과(3900ms 시점, 2300 + 1500 = 3800ms): 사용자 입력이 멈춘 것을 감지하고 비로소 최종 X 기각 판정!
+    engine.tick(3900);
     expect(rejectedCount).toBe(1);
     expect(engine.activeHypothesis!.isRejected).toBe(true);
     expect(engine.strokes.length).toBe(0); // 일반 필기 증발로 잘못 전이되지 않음
 
     // 650ms 스모크아웃 경과 전: 이전 문장이 isRejected=true 상태로 유지되어 애니메이션 보장
-    engine.tick(3800);
+    engine.tick(4100);
     expect(engine.activeHypothesis!.isRejected).toBe(true);
 
-    // 650ms 스모크아웃 경과 후(3600 + 650 = 4250ms): 비로소 다음 대안 문장으로 교체 생성
-    engine.tick(4300);
+    // 650ms 스모크아웃 경과 후(3900 + 650 = 4550ms): 비로소 다음 대안 문장으로 교체 생성
+    engine.tick(4600);
     expect(engine.activeHypothesis!.isRejected).toBe(false);
     expect(engine.activeHypothesis!.sentence).not.toBe('가설 2번 문장');
   });

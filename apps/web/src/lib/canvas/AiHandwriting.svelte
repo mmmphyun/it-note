@@ -72,6 +72,10 @@
         font: nanumFont,
         timing,
         plugins: [airGlidePlugin],
+        onChangeTimeline: () => {
+          // Tegaki가 수평(0도) 상태에서 HarfBuzz 셰이핑과 DOM Range 계측을 100% 끝낸 시점에 비로소 아날로그 회전 적용
+          isTilted = true;
+        },
         onComplete: () => {
           // 대필 완료 즉시 펜 흔적 없이 완전 소멸
           if (penEl) penEl.style.display = 'none';
@@ -79,10 +83,10 @@
         },
       });
 
-      // 초기 Range 계측 및 HarfBuzz 셰이핑 배치 완료 직후 다음 프레임에 시각적 아날로그 기울기 적용
-      requestAnimationFrame(() => {
+      // 폰트가 이미 캐시되어 즉시 준비된 경우를 위한 안전 타이머
+      setTimeout(() => {
         isTilted = true;
-      });
+      }, 150);
     } catch {
       if (containerEl) containerEl.textContent = sentence;
       if (penEl) penEl.style.display = 'none';
