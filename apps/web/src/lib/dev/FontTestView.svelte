@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { TegakiEngine } from 'tegaki/core';
   import nanumFont from 'tegaki/fonts/nanum-pen-script';
-  import { createStylusPenPlugin, getTegakiTiming } from '../canvas/stylusPenPlugin';
+  import { getTegakiTiming } from '../canvas/stylusPenPlugin';
 
   let testText = $state('가상 DOM 오버헤드가 큰 React 대신 Svelte 5와 Hono로 모노레포를 구성하는 계획 맞나요?');
   let fontSize = $state(32);
@@ -12,6 +12,11 @@
   let tegakiContainer = $state<HTMLDivElement | null>(null);
   let tegakiEngine: TegakiEngine | null = null;
   let isWriting = $state(false);
+
+  // 실시간 펜 좌표 (DOM 독립 레이어)
+  let penX = $state(0);
+  let penY = $state(0);
+  let isPenActive = $state(false);
 
   const durationEstimates: Record<number, string> = {
     1: '22.4초 (극저속·획 하나하나 관찰)',
@@ -31,23 +36,37 @@
     tegakiEngine?.destroy();
     tegakiContainer.innerHTML = '';
     isWriting = true;
+    isPenActive = false;
 
     const timing = getTegakiTiming(speedLevel);
-    const plugins = showPenTip ? [createStylusPenPlugin(true)] : [];
+
+    const trackerPlugin = {
+      name: 'pen-position-tracker',
+      onFrame(frame: { active?: Array<{ head?: { x: number; y: number } }> }) {
+        if (!showPenTip) return;
+        if (frame.active && frame.active.length > 0 && frame.active[0].head) {
+          penX = frame.active[0].head.x;
+          penY = frame.active[0].head.y;
+          isPenActive = true;
+        }
+      },
+    };
 
     try {
       tegakiEngine = new TegakiEngine(tegakiContainer, {
         text: testText,
         font: nanumFont,
         timing,
-        plugins,
+        plugins: [trackerPlugin],
         onComplete: () => {
           isWriting = false;
+          isPenActive = false;
         },
       });
     } catch {
       if (tegakiContainer) tegakiContainer.textContent = testText;
       isWriting = false;
+      isPenActive = false;
     }
   }
 
@@ -67,6 +86,7 @@
 
     return () => {
       tegakiEngine?.destroy();
+      isPenActive = false;
     };
   });
 </script>
@@ -75,7 +95,7 @@
   <header class="dev-header">
     <div class="title-wrap">
       <h1>나눔손글씨 펜체 획순 및 펜촉 추적 튜닝 룸</h1>
-      <p class="desc">대필 속도(1~10)와 실시간 펜촉(Nib) 오버레이를 실측하며 최적의 필기감을 튜닝합니다.</p>
+      <p class="desc">대필 속도(1~10)와 잘림 없는 스타일러스 볼펜 오버레이를 실측하며 최적의 필기감을 튜닝합니다.</p>
     </div>
     <div class="nav-links">
       <a href="/" class="btn secondary">캔버스 기본 (30s+60s)</a>
@@ -139,7 +159,7 @@
               bind:checked={showPenTip}
               onchange={startAnimation}
             />
-            <span class="chk-text">실시간 스타일러스 펜촉(Nib) 추적 표시</span>
+            <span class="chk-text">실시간 스타일러스 볼펜 추적 표시</span>
           </label>
         </div>
 
@@ -161,7 +181,7 @@
           <span class="badge green">나눔손글씨 펜체</span>
           <span class="badge blue">속도 레벨 {speedLevel}</span>
           {#if showPenTip}
-            <span class="badge gold">펜촉 오버레이 활성</span>
+            <span class="badge gray">다크 메탈 볼펜 오버레이</span>
           {/if}
         </div>
         <h2>실시간 대필 렌더링 미리보기</h2>
@@ -169,16 +189,38 @@
       </div>
 
       <div class="paper-preview">
-        <div
-          bind:this={tegakiContainer}
-          class="rendered-text"
-          style="font-size: {fontSize}px;"
-        ></div>
+        <div class="text-stage">
+          <div
+            bind:this={tegakiContainer}
+            class="rendered-text"
+            style="font-size: {fontSize}px;"
+          ></div>
+
+          {#if isPenActive}
+            <div
+              class="stylus-pen-cursor"
+              style="transform: translate3d({penX}px, {penY}px, 0);"
+            >
+              <svg class="pen-svg" width="38" height="38" viewBox="0 0 38 38" fill="none">
+                <path d="M3 35 L6 27 L11 32 Z" fill="#1e1e1e" />
+                <path d="M6 27 L11 32 L31 12 L26 7 Z" fill="url(#test-ballpen-body)" />
+                <path d="M26 7 L31 12 L35 8 L30 4 Z" fill="#9e9e9e" />
+                <defs>
+                  <linearGradient id="test-ballpen-body" x1="6" y1="27" x2="31" y2="12" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#2c3038" />
+                    <stop offset="0.5" stop-color="#474e5c" />
+                    <stop offset="1" stop-color="#1e2126" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+          {/if}
+        </div>
       </div>
 
       <div class="card-footer">
         <p class="status">
-          상태: {isWriting ? '펜촉이 획을 따라가며 문장 필기 중...' : '대필 완료'}
+          상태: {isWriting ? '볼펜이 획을 따라가며 문장 필기 중...' : '대필 완료'}
         </p>
         <button class="btn small" onclick={startAnimation}>다시 쓰기</button>
       </div>
@@ -407,10 +449,9 @@
     color: #1565c0;
   }
 
-  .badge.gold {
-    background: #fff8e1;
-    color: #b78103;
-    border: 1px solid #ffe082;
+  .badge.gray {
+    background: #eee;
+    color: #555;
   }
 
   .card-head h2 {
@@ -433,7 +474,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
+    overflow: visible;
+  }
+
+  .text-stage {
+    position: relative;
+    width: 100%;
+    overflow: visible;
   }
 
   .rendered-text {
@@ -443,6 +490,24 @@
     word-break: keep-all;
     text-align: left;
     width: 100%;
+    overflow: visible;
+  }
+
+  .stylus-pen-cursor {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 50;
+    margin-left: -3px;
+    margin-top: -35px;
+    will-change: transform;
+    filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.12));
+  }
+
+  .pen-svg {
+    display: block;
+    overflow: visible;
   }
 
   .card-footer {
