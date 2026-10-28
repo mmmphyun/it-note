@@ -26,7 +26,6 @@
   let penEl = $state<HTMLDivElement | null>(null);
   let engine: TegakiEngine | null = null;
   let renderedSentence = '';
-  let isTilted = $state(false);
 
   // 문장이 실제로 바뀌었을 때만 Tegaki를 생성/재생성 (사용자 필기 시 부모 컴포넌트 렌더링에 의한 AI 글씨 재작성 원천 차단)
   $effect(() => {
@@ -42,7 +41,6 @@
     renderedSentence = targetText;
     engine?.destroy();
     targetEl.innerHTML = '';
-    isTilted = false; // Tegaki가 DOM Range를 계측하는 동안에는 0도 수평 상태를 유지하여 자간·행간 왜곡 원천 차단
 
     if (penEl) {
       penEl.style.display = 'none';
@@ -80,25 +78,15 @@
         font: nanumFont,
         timing,
         plugins: [airGlidePlugin],
-        onChangeTimeline: () => {
-          // Tegaki가 수평(0도) 상태에서 HarfBuzz 셰이핑과 DOM Range 계측을 100% 끝낸 시점에 비로소 아날로그 회전 적용
-          isTilted = true;
-        },
         onComplete: () => {
           // 대필 완료 즉시 펜 흔적 없이 완전 소멸
           if (penEl) penEl.style.display = 'none';
           onComplete?.();
         },
       });
-
-      // 폰트가 이미 캐시되어 즉시 준비된 경우를 위한 안전 타이머
-      setTimeout(() => {
-        isTilted = true;
-      }, 150);
     } catch {
       targetEl.textContent = targetText;
       if (penEl) penEl.style.display = 'none';
-      isTilted = true;
       onComplete?.();
     }
   });
@@ -120,7 +108,7 @@
     top: {bbox[1]}px;
     min-width: {bbox[2]}px;
     min-height: {bbox[3]}px;
-    --tilt: {isTilted ? tiltDeg : 0}deg;
+    --tilt: {tiltDeg}deg;
   "
 >
   <div bind:this={containerEl} class="tegaki-container"></div>
@@ -168,8 +156,8 @@
                 filter 0.6s ease;
     z-index: 10;
     overflow: visible;
-    width: 480px;
-    max-width: 520px;
+    width: max-content;
+    max-width: 720px;
   }
 
   .tegaki-container {
@@ -179,8 +167,9 @@
     letter-spacing: 0;
     color: #1e1e1e;
     word-break: keep-all;
+    white-space: pre-line;
     overflow: visible;
-    width: 100%;
+    width: max-content;
     text-align: left;
   }
 

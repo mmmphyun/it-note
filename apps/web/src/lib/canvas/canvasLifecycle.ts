@@ -25,10 +25,36 @@ export function generateRandomTilt(): number {
 }
 
 /**
- * 텍스트 공백 정돈 (Tegaki HarfBuzz 셰이퍼가 CSS 너비에 따라 정상 자간으로 자동 개행)
+ * 총 단어 수에 맞춰 어절(단어)을 쪼개지 않고 1~3줄로 유동적 균등 분할
+ * - 4단어 이하: 1줄
+ * - 5~8단어: 2줄 균등 분할
+ * - 9단어 이상: 3줄 균등 분할
+ * 단어 중간 분절을 원천 차단하여 브라우저의 비정상 개행 및 자간 왜곡 방지
  */
-export function formatHandwrittenSentence(sentence: string): string {
-  return sentence.trim().replace(/\s+/g, ' ');
+export function formatHandwrittenSentence(sentence: string, maxLines = 3): string {
+  const words = sentence.trim().split(/\s+/).filter(Boolean);
+  const n = words.length;
+  if (n <= 4) return sentence.trim();
+
+  const targetLines = Math.min(maxLines, n <= 8 ? 2 : 3);
+  const baseCount = Math.floor(n / targetLines);
+  let remainder = n % targetLines;
+
+  const lines: string[] = [];
+  let index = 0;
+
+  for (let lineIdx = 0; lineIdx < targetLines; lineIdx++) {
+    const take = baseCount + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder--;
+
+    const chunk = words.slice(index, index + take);
+    if (chunk.length > 0) {
+      lines.push(chunk.join(' '));
+    }
+    index += take;
+  }
+
+  return lines.join('\n');
 }
 
 export interface ViewportBounds {

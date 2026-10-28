@@ -191,11 +191,18 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     expect(engine.activeHypothesis!.isConfirmed).toBe(false);
   });
 
-  it('formatHandwrittenSentence는 불필요한 공백을 정돈하고 원본 어절 순서를 완벽히 보존해야 한다', () => {
-    const textWithSpaces = '  가상   DOM과    실시간  상태   동기화 로직  ';
-    const formatted = formatHandwrittenSentence(textWithSpaces);
+  it('formatHandwrittenSentence는 단어를 자르지 않고 최대 3줄로 균등 분할하며 원본 어절 순서를 보존해야 한다', () => {
+    const longText = '취소선으로 기각된 가설을 배제하고 클라우드 보안 자동화 루틴을 설계하려는 맥락인가요?';
+    const formatted = formatHandwrittenSentence(longText, 3);
+    const lines = formatted.split('\n');
 
-    expect(formatted).toBe('가상 DOM과 실시간 상태 동기화 로직');
+    expect(lines.length).toBeLessThanOrEqual(3);
+    expect(lines.length).toBe(3);
+    // 어절 순서 및 단어 원형 보존 확인
+    expect(formatted.replace(/\n/g, ' ')).toBe(longText);
+    expect(lines[0]).toBe('취소선으로 기각된 가설을 배제하고');
+    expect(lines[1]).toBe('클라우드 보안 자동화');
+    expect(lines[2]).toBe('루틴을 설계하려는 맥락인가요?');
   });
 
   it('activeHypothesis가 존재하는 동안에는 필기 증발에 의한 중복 가설 생성이 차단되어야 한다', () => {
