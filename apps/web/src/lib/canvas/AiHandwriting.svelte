@@ -106,8 +106,6 @@
   style="
     left: {bbox[0]}px;
     top: {bbox[1]}px;
-    min-width: {bbox[2]}px;
-    min-height: {bbox[3]}px;
     --tilt: {tiltDeg}deg;
   "
 >
@@ -157,7 +155,6 @@
     z-index: 10;
     overflow: visible;
     width: max-content;
-    max-width: 720px;
   }
 
   .tegaki-container {
@@ -166,11 +163,24 @@
     line-height: 1.5;
     letter-spacing: 0;
     color: #1e1e1e;
-    word-break: keep-all;
-    white-space: pre-line;
     overflow: visible;
     width: max-content;
     text-align: left;
+  }
+
+  /*
+   * Tegaki 내부 DOM 오버레이 강제 규칙:
+   * 1. white-space: pre !important — 브라우저가 임의로 단어 중간을 쪼개는 soft-break 원천 차단
+   * 2. overflow-wrap: normal !important — 강제 줄바꿈 방지
+   * 3. width: max-content !important — 오버레이 너비를 텍스트 줄 길이에 맞게 확장
+   */
+  .tegaki-container :global([data-tegaki="overlay"]),
+  .tegaki-container :global([data-tegaki="sentinel"]),
+  .tegaki-container :global([data-tegaki="canvas-fallback"]) {
+    white-space: pre !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    width: max-content !important;
   }
 
   .stylus-pen-cursor {

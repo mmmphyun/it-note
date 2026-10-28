@@ -25,22 +25,22 @@ export function generateRandomTilt(): number {
 }
 
 /**
- * 단어들의 예상 렌더링 픽셀 너비를 산출 (Nanum Pen Script 32px 기준)
- * - 한글 글자당 약 20.8px (fontSize * 0.65)
- * - 영문 대문자 약 17.6px (fontSize * 0.55)
- * - 영문 소문자/숫자/기호 약 13.4px (fontSize * 0.42)
- * - 공백(space) 약 10px
+ * 단어들의 예상 렌더링 픽셀 너비를 산출 (Nanum Pen Script 32px 기준 여유 마진 적용)
+ * - 한글 글자당 약 24px (fontSize * 0.75)
+ * - 영문 대문자 약 19.2px (fontSize * 0.60)
+ * - 영문 소문자/숫자/기호 약 14.4px (fontSize * 0.45)
+ * - 공백(space) 약 14px
  */
 export function estimateWordWidth(word: string, fontSize = 32): number {
   let width = 0;
   for (let i = 0; i < word.length; i++) {
     const code = word.charCodeAt(i);
     if (code >= 0xac00 && code <= 0xd7a3) {
-      width += fontSize * 0.65;
+      width += fontSize * 0.75;
     } else if (code >= 65 && code <= 90) {
-      width += fontSize * 0.55;
+      width += fontSize * 0.6;
     } else {
-      width += fontSize * 0.42;
+      width += fontSize * 0.45;
     }
   }
   return width;
@@ -62,7 +62,7 @@ export function formatHandwrittenSentence(
   const words = sentence.trim().split(/\s+/).filter(Boolean);
   if (words.length <= 3) return sentence.trim();
 
-  const spaceWidth = 10;
+  const spaceWidth = 14;
   const effectiveWidth = Math.max(300, Math.min(680, availableWidth));
 
   const lines: string[] = [];
