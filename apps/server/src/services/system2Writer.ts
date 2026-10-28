@@ -35,7 +35,7 @@ export async function runSystem2Writer(params: System2Params): Promise<string> {
  * Gemini 기반 단일 문장 생성기
  */
 async function callGeminiWriter(params: System2Params, apiKey: string): Promise<string> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
 
   const { decision, keywords, request } = params;
   const rejected = request.rejectedHypotheses ?? [];

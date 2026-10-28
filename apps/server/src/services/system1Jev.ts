@@ -85,19 +85,10 @@ async function callGeminiStructuredJev(
   request: InferRequestBody,
   apiKey: string
 ): Promise<System1Output> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
 
   const prompt = `You are System 1 (Jev Decision Engine). Analyze the user's stylus note image and metadata.
-Output MUST strictly match this JSON structure:
-{
-  "isContinuousWithPrevious": { "type": "noul", "probability": 0.85, "value": true },
-  "inputClassification": { "type": "choice", "selected": "FEEDBACK_REPLY" | "NEW_INDEPENDENT_MEMO" | "STRIKE_THROUGH", "confidence": 0.9 },
-  "strikethroughIntent": { "type": "choice", "selected": "THOUGHT_PIVOT" | "TYPO_CORRECTION" | "NONE", "confidence": 0.9 },
-  "visualStructure": { "type": "choice", "selected": "CONTRAST_ARROW" | "MIND_MAP" | "LIST" | "ISOLATED", "confidence": 0.9 },
-  "domainRoute": { "type": "choice", "selected": "SIDE_PROJECT_SPARK" | "DEVSECOPS_STUDY" | "ROUTINE_TASK" | "GENERAL_IDEA", "confidence": 0.8 },
-  "marginBox": { "type": "box", "coordinates": [minX, minY, maxX, maxY] },
-  "extractedKeywords": { "active": ["keyword1"], "struckOut": ["oldKeyword"] }
-}
+Determine the decision primitives (Noul, Choice, Box) and extract active/struck-out keywords.
 
 Metadata:
 - Previous Evaporated Context: ${request.previousEvaporatedContext ?? 'null'}
@@ -126,6 +117,84 @@ Metadata:
       ],
       generationConfig: {
         responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            isContinuousWithPrevious: {
+              type: 'OBJECT',
+              properties: {
+                type: { type: 'STRING', enum: ['noul'] },
+                probability: { type: 'NUMBER' },
+                value: { type: 'BOOLEAN' },
+              },
+              required: ['type', 'probability', 'value'],
+            },
+            inputClassification: {
+              type: 'OBJECT',
+              properties: {
+                type: { type: 'STRING', enum: ['choice'] },
+                selected: { type: 'STRING', enum: ['FEEDBACK_REPLY', 'NEW_INDEPENDENT_MEMO', 'STRIKE_THROUGH'] },
+                confidence: { type: 'NUMBER' },
+              },
+              required: ['type', 'selected', 'confidence'],
+            },
+            strikethroughIntent: {
+              type: 'OBJECT',
+              properties: {
+                type: { type: 'STRING', enum: ['choice'] },
+                selected: { type: 'STRING', enum: ['THOUGHT_PIVOT', 'TYPO_CORRECTION', 'NONE'] },
+                confidence: { type: 'NUMBER' },
+              },
+              required: ['type', 'selected', 'confidence'],
+            },
+            visualStructure: {
+              type: 'OBJECT',
+              properties: {
+                type: { type: 'STRING', enum: ['choice'] },
+                selected: { type: 'STRING', enum: ['CONTRAST_ARROW', 'MIND_MAP', 'LIST', 'ISOLATED'] },
+                confidence: { type: 'NUMBER' },
+              },
+              required: ['type', 'selected', 'confidence'],
+            },
+            domainRoute: {
+              type: 'OBJECT',
+              properties: {
+                type: { type: 'STRING', enum: ['choice'] },
+                selected: { type: 'STRING', enum: ['SIDE_PROJECT_SPARK', 'DEVSECOPS_STUDY', 'ROUTINE_TASK', 'GENERAL_IDEA'] },
+                confidence: { type: 'NUMBER' },
+              },
+              required: ['type', 'selected', 'confidence'],
+            },
+            marginBox: {
+              type: 'OBJECT',
+              properties: {
+                type: { type: 'STRING', enum: ['box'] },
+                coordinates: {
+                  type: 'ARRAY',
+                  items: { type: 'NUMBER' },
+                },
+              },
+              required: ['type', 'coordinates'],
+            },
+            extractedKeywords: {
+              type: 'OBJECT',
+              properties: {
+                active: { type: 'ARRAY', items: { type: 'STRING' } },
+                struckOut: { type: 'ARRAY', items: { type: 'STRING' } },
+              },
+              required: ['active', 'struckOut'],
+            },
+          },
+          required: [
+            'isContinuousWithPrevious',
+            'inputClassification',
+            'strikethroughIntent',
+            'visualStructure',
+            'domainRoute',
+            'marginBox',
+            'extractedKeywords',
+          ],
+        },
       },
     }),
   });
