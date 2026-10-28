@@ -262,7 +262,6 @@
     } catch {}
 
     engine.pointerUp(performance.now());
-    activeHypothesis = engine.activeHypothesis;
   }
 
   function updateViewport() {

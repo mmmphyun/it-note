@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { TegakiEngine } from 'tegaki/core';
   import nanumFont from 'tegaki/fonts/nanum-pen-script';
   import { getTegakiTiming, createAirGlidePlugin } from './stylusPenPlugin';
@@ -24,16 +25,23 @@
   let containerEl = $state<HTMLDivElement | null>(null);
   let penEl = $state<HTMLDivElement | null>(null);
   let engine: TegakiEngine | null = null;
-  let lastSentenceRendered = '';
+  let renderedSentence = '';
   let isTilted = $state(false);
 
+  // 문장이 실제로 바뀌었을 때만 Tegaki를 생성/재생성 (사용자 필기 시 부모 컴포넌트 렌더링에 의한 AI 글씨 재작성 원천 차단)
   $effect(() => {
-    if (!containerEl) return;
-    if (lastSentenceRendered === sentence && engine) return;
+    const targetText = sentence;
+    const targetEl = containerEl;
+    if (!targetEl || !targetText) return;
 
-    lastSentenceRendered = sentence;
+    // 이미 해당 문장이 렌더링되어 있으면 절대 재렌더링하거나 초기화하지 않고 현재 글씨 100% 보존
+    if (renderedSentence === targetText && engine) {
+      return;
+    }
+
+    renderedSentence = targetText;
     engine?.destroy();
-    containerEl.innerHTML = '';
+    targetEl.innerHTML = '';
     isTilted = false; // Tegaki가 DOM Range를 계측하는 동안에는 0도 수평 상태를 유지하여 자간·행간 왜곡 원천 차단
 
     if (penEl) {
@@ -67,8 +75,8 @@
     });
 
     try {
-      engine = new TegakiEngine(containerEl, {
-        text: sentence,
+      engine = new TegakiEngine(targetEl, {
+        text: targetText,
         font: nanumFont,
         timing,
         plugins: [airGlidePlugin],
@@ -88,17 +96,17 @@
         isTilted = true;
       }, 150);
     } catch {
-      if (containerEl) containerEl.textContent = sentence;
+      targetEl.textContent = targetText;
       if (penEl) penEl.style.display = 'none';
       isTilted = true;
       onComplete?.();
     }
+  });
 
-    return () => {
-      engine?.destroy();
-      engine = null;
-      if (penEl) penEl.style.display = 'none';
-    };
+  onDestroy(() => {
+    engine?.destroy();
+    engine = null;
+    if (penEl) penEl.style.display = 'none';
   });
 </script>
 
