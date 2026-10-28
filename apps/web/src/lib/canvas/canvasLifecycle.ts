@@ -1,4 +1,4 @@
-import type { Stroke, StrokePoint, AiHypothesis, ConfirmedNote } from '@itnote/shared';
+import type { Stroke, StrokePoint, AiHypothesis, ConfirmedNote, InferRequestBody, InferResponseBody } from '@itnote/shared';
 import { calculateDecayState, type DecayState, type SpeedMode } from './decayTimer';
 import { extractCroppedStrokes, type CroppedImageResult } from './cropExtractor';
 import { recognizeOxGesture, type Point } from './gestureRecognizer';
@@ -8,6 +8,8 @@ export interface CanvasLifecycleCallbacks {
   onHypothesisSpawned?: (hypo: AiHypothesis) => void;
   onHypothesisConfirmed?: (note: ConfirmedNote) => void;
   onHypothesisRejected?: (hypo: AiHypothesis) => void;
+  onInferRequested?: (req: InferRequestBody) => Promise<InferResponseBody | null>;
+  onFeedbackRefined?: (newSentence: string) => void;
 }
 
 /**
@@ -151,6 +153,7 @@ export class CanvasLifecycleEngine {
   activeHypothesis: AiHypothesis | null = null;
   confirmedNotes: ConfirmedNote[] = [];
   rejectedHypotheses: string[] = [];
+  lastEvaporatedContext: string | null = null;
   speedMode: SpeedMode = 'normal';
   callbacks: CanvasLifecycleCallbacks;
   currentViewport: ViewportBounds = { scrollX: 0, scrollY: 0, width: 1200, height: 800 };
@@ -255,6 +258,28 @@ export class CanvasLifecycleEngine {
       const bbox = this.pendingNextHypothesisBbox ?? [180, 140, 420, 200];
       this.pendingNextHypothesisBbox = null;
       this.spawnHypothesis(bbox, now);
+
+      if (this.callbacks.onInferRequested) {
+        const req: InferRequestBody = {
+          croppedImageBase64: 'data:image/png;base64,rejection-refinement',
+          strokeMetadata: {
+            strokeCount: 2,
+            bbox,
+            canvasSize: [2400, 1800],
+          },
+          previousEvaporatedContext: this.lastEvaporatedContext,
+          rejectedHypotheses: [...this.rejectedHypotheses],
+        };
+        this.callbacks.onInferRequested(req).then((res) => {
+          if (res && this.activeHypothesis && !this.activeHypothesis.isConfirmed) {
+            const adjustedBbox = calculateVisibleHypothesisBbox(res.jevDecision.marginBox.coordinates, this.currentViewport, 520, 105);
+            const dynamicWidth = adjustedBbox[2];
+            const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
+            this.activeHypothesis.sentence = formatted;
+            this.lastEvaporatedContext = formatted;
+          }
+        }).catch(() => {});
+      }
     }
 
     // 1. AI 문장 제스처/단어 다중 획 입력 유예 타이머 평가 (사용자 입력이 1.5초간 멈춘 후 최종 판정)
@@ -272,6 +297,40 @@ export class CanvasLifecycleEngine {
 
         if (gesture === 'O' || gesture === 'X') {
           this.executeHypothesisAction(gesture, now);
+        } else if (this.callbacks.onInferRequested) {
+          // AI 문장 바깥 여백에 펜으로 글씨를 쓴 경우: 답장 vs 새 단어 판별
+          const strokesForCrop = this.hypothesisGestureStrokes.map((pts, i) => ({
+            id: `reply-${i}`,
+            points: pts.map((p) => ({ x: p.x, y: p.y, t: 0, pressure: 0.6 })),
+            startTime: 0,
+            endTime: 0,
+          }));
+          const crop = extractCroppedStrokes(strokesForCrop);
+          this.hypothesisGestureStrokes = [];
+          if (crop) {
+            const req: InferRequestBody = {
+              croppedImageBase64: crop.base64,
+              strokeMetadata: {
+                strokeCount: crop.strokeCount,
+                bbox: crop.bbox,
+                canvasSize: [2400, 1800],
+              },
+              activeHypothesisSentence: this.activeHypothesis.sentence,
+              previousEvaporatedContext: this.lastEvaporatedContext,
+              rejectedHypotheses: [...this.rejectedHypotheses],
+            };
+            this.callbacks.onInferRequested(req).then((res) => {
+              if (res && this.activeHypothesis && !this.activeHypothesis.isConfirmed && !this.activeHypothesis.isRejected) {
+                const adjustedBbox = calculateVisibleHypothesisBbox(res.jevDecision.marginBox.coordinates, this.currentViewport, 520, 105);
+                const dynamicWidth = adjustedBbox[2];
+                const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
+                this.activeHypothesis.sentence = formatted;
+                this.activeHypothesis.bbox = adjustedBbox;
+                this.lastEvaporatedContext = formatted;
+                this.callbacks.onFeedbackRefined?.(formatted);
+              }
+            }).catch(() => {});
+          }
         }
       }
     }
@@ -295,6 +354,29 @@ export class CanvasLifecycleEngine {
       if (cropped && !this.activeHypothesis) {
         this.callbacks.onCropExtracted?.(cropped);
         this.spawnHypothesis(cropped.bbox, now);
+
+        if (this.callbacks.onInferRequested) {
+          const req: InferRequestBody = {
+            croppedImageBase64: cropped.base64,
+            strokeMetadata: {
+              strokeCount: cropped.strokeCount,
+              bbox: cropped.bbox,
+              canvasSize: [2400, 1800],
+            },
+            previousEvaporatedContext: this.lastEvaporatedContext,
+            rejectedHypotheses: [...this.rejectedHypotheses],
+          };
+          this.callbacks.onInferRequested(req).then((res) => {
+            if (res && this.activeHypothesis && !this.activeHypothesis.isConfirmed && !this.activeHypothesis.isRejected) {
+              const adjustedBbox = calculateVisibleHypothesisBbox(res.jevDecision.marginBox.coordinates, this.currentViewport, 520, 105);
+              const dynamicWidth = adjustedBbox[2];
+              const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
+              this.activeHypothesis.sentence = formatted;
+              this.activeHypothesis.bbox = adjustedBbox;
+              this.lastEvaporatedContext = formatted;
+            }
+          }).catch(() => {});
+        }
       }
       this.strokes = [];
       this.lastPointerUpTime = null;
@@ -307,8 +389,8 @@ export class CanvasLifecycleEngine {
     this.currentViewport = viewport;
   }
 
-  spawnHypothesis(bbox: [number, number, number, number], now: number): void {
-    const rawSentence = this.mockSentences[this.mockSentenceIndex % this.mockSentences.length];
+  spawnHypothesis(bbox: [number, number, number, number], now: number, customSentence?: string): void {
+    const rawSentence = customSentence ?? this.mockSentences[this.mockSentenceIndex % this.mockSentences.length];
     const tiltDeg = generateRandomTilt();
 
     // 1. 뷰포트 가시 영역 보정: 사용자가 보고 있는 화면 밖으로 잘림 방지 (기본 선호 너비 520px)
@@ -328,6 +410,7 @@ export class CanvasLifecycleEngine {
       tiltDeg,
     };
     this.activeHypothesis = hypothesis;
+    this.lastEvaporatedContext = formattedSentence;
     this.callbacks.onHypothesisSpawned?.(hypothesis);
   }
 }

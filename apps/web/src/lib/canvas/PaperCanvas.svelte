@@ -5,6 +5,7 @@
   import { CanvasLifecycleEngine } from './canvasLifecycle';
   import type { CroppedImageResult } from './cropExtractor';
   import AiHandwriting from './AiHandwriting.svelte';
+  import { requestInference } from '../api/inferClient';
 
   interface Props {
     onOpenDesk?: () => void;
@@ -313,6 +314,12 @@
         },
         onHypothesisRejected: (hypo) => {
           activeHypothesis = hypo;
+        },
+        onInferRequested: requestInference,
+        onFeedbackRefined: (newSentence) => {
+          if (activeHypothesis) {
+            activeHypothesis.sentence = newSentence;
+          }
         },
       },
       speedMode
