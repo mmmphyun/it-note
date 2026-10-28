@@ -25,33 +25,66 @@ export function generateRandomTilt(): number {
 }
 
 /**
- * 총 단어 수에 맞춰 어절(단어)을 쪼개지 않고 1~3줄로 유동적 균등 분할
- * - 4단어 이하: 1줄
- * - 5~8단어: 2줄 균등 분할
- * - 9단어 이상: 3줄 균등 분할
- * 단어 중간 분절을 원천 차단하여 브라우저의 비정상 개행 및 자간 왜곡 방지
+ * 단어들의 예상 렌더링 픽셀 너비를 산출 (Nanum Pen Script 32px 기준)
+ * - 한글 글자당 약 20.8px (fontSize * 0.65)
+ * - 영문 대문자 약 17.6px (fontSize * 0.55)
+ * - 영문 소문자/숫자/기호 약 13.4px (fontSize * 0.42)
+ * - 공백(space) 약 10px
  */
-export function formatHandwrittenSentence(sentence: string, maxLines = 3): string {
-  const words = sentence.trim().split(/\s+/).filter(Boolean);
-  const n = words.length;
-  if (n <= 4) return sentence.trim();
+export function estimateWordWidth(word: string, fontSize = 32): number {
+  let width = 0;
+  for (let i = 0; i < word.length; i++) {
+    const code = word.charCodeAt(i);
+    if (code >= 0xac00 && code <= 0xd7a3) {
+      width += fontSize * 0.65;
+    } else if (code >= 65 && code <= 90) {
+      width += fontSize * 0.55;
+    } else {
+      width += fontSize * 0.42;
+    }
+  }
+  return width;
+}
 
-  const targetLines = Math.min(maxLines, n <= 8 ? 2 : 3);
-  const baseCount = Math.floor(n / targetLines);
-  let remainder = n % targetLines;
+/**
+ * AI 가설 문장을 가용 폭(availableWidth)과 어절 너비에 맞춰 수학적으로 자동 개행.
+ * 단어 중간 절단(soft-break)을 원천 차단하여 브라우저 Range 측정 오차 및 자간 왜곡 방지.
+ * 
+ * @param sentence 원본 문장
+ * @param availableWidth 현재 위치에서 가용 가능한 최대 너비 (기본 520px, 최소 300px)
+ * @param maxLines 허용 최대 줄 수 (기본 3)
+ */
+export function formatHandwrittenSentence(
+  sentence: string,
+  availableWidth = 520,
+  maxLines = 3
+): string {
+  const words = sentence.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 3) return sentence.trim();
+
+  const spaceWidth = 10;
+  const effectiveWidth = Math.max(300, Math.min(680, availableWidth));
 
   const lines: string[] = [];
-  let index = 0;
+  let currentLineWords: string[] = [];
+  let currentLineWidth = 0;
 
-  for (let lineIdx = 0; lineIdx < targetLines; lineIdx++) {
-    const take = baseCount + (remainder > 0 ? 1 : 0);
-    if (remainder > 0) remainder--;
+  for (const word of words) {
+    const wordW = estimateWordWidth(word);
+    const needed = currentLineWords.length === 0 ? wordW : currentLineWidth + spaceWidth + wordW;
 
-    const chunk = words.slice(index, index + take);
-    if (chunk.length > 0) {
-      lines.push(chunk.join(' '));
+    if (needed > effectiveWidth && currentLineWords.length > 0 && lines.length < maxLines - 1) {
+      lines.push(currentLineWords.join(' '));
+      currentLineWords = [word];
+      currentLineWidth = wordW;
+    } else {
+      currentLineWords.push(word);
+      currentLineWidth = needed;
     }
-    index += take;
+  }
+
+  if (currentLineWords.length > 0) {
+    lines.push(currentLineWords.join(' '));
   }
 
   return lines.join('\n');
@@ -71,7 +104,7 @@ export interface ViewportBounds {
 export function calculateVisibleHypothesisBbox(
   cropBbox: [number, number, number, number], // [minX, minY, maxX, maxY]
   viewport: ViewportBounds,
-  boxWidth = 480,
+  preferredWidth = 520,
   boxHeight = 110
 ): [number, number, number, number] {
   const [minX, minY, maxX, maxY] = cropBbox;
@@ -86,22 +119,23 @@ export function calculateVisibleHypothesisBbox(
   let candidateX = maxX + 36;
   let candidateY = minY;
 
-  // 화면 우측 가용 폭 계산
+  // 화면 우측 가용 폭 계산 (화면 경계 마진 24px)
   const availableRight = visMaxX - candidateX - 24;
 
-  // 2. 우측 화면 밖으로 넘칠 경우: 획의 아래쪽(+24px)으로 전환
-  if (availableRight < 380) {
+  // 2. 우측 화면 공간이 부족한 경우 (최소 320px 미확보 시): 획의 아래쪽(+24px)으로 전환
+  if (availableRight < 320) {
     candidateX = Math.max(visMinX + 24, minX);
     candidateY = maxY + 24;
   }
 
-  // 3. 하단 화면 밖으로 넘칠 경우: 뷰포트 내부로 상향 보정
+  // 3. 뷰포트 내 잔여 가용 너비 계산 (최소 320px, 최대 680px)
+  const maxAvailable = Math.max(320, visMaxX - candidateX - 24);
+  const dynamicWidth = Math.min(preferredWidth, maxAvailable);
+
+  // 4. 하단 화면 밖으로 넘칠 경우: 뷰포트 내부로 상향 보정
   if (candidateY + boxHeight > visMaxY - 24) {
     candidateY = Math.max(visMinY + 24, visMaxY - boxHeight - 24);
   }
-
-  // 4. 가용 폭에 맞춘 동적 너비 산출 (기본 480px, 최대 가용 공간에 맞춤)
-  const dynamicWidth = Math.max(400, Math.min(boxWidth, visMaxX - candidateX - 24));
 
   // 5. 좌우 최종 안전 클램핑 (화면 경계 이탈 100% 차단)
   const clampedX = Math.max(visMinX + 24, Math.min(visMaxX - dynamicWidth - 24, candidateX));
@@ -275,11 +309,14 @@ export class CanvasLifecycleEngine {
 
   spawnHypothesis(bbox: [number, number, number, number], now: number): void {
     const rawSentence = this.mockSentences[this.mockSentenceIndex % this.mockSentences.length];
-    const formattedSentence = formatHandwrittenSentence(rawSentence);
     const tiltDeg = generateRandomTilt();
 
-    // 뷰포트 가시 영역 보정: 사용자가 보고 있는 화면 밖으로 잘림 방지
-    const adjustedBbox = calculateVisibleHypothesisBbox(bbox, this.currentViewport, 480, 105);
+    // 1. 뷰포트 가시 영역 보정: 사용자가 보고 있는 화면 밖으로 잘림 방지 (기본 선호 너비 520px)
+    const adjustedBbox = calculateVisibleHypothesisBbox(bbox, this.currentViewport, 520, 105);
+    const dynamicWidth = adjustedBbox[2];
+
+    // 2. 산출된 동적 가용 너비에 맞춰 어절 단위 최적 개행 포맷팅 (단어 중간 분절 원천 차단)
+    const formattedSentence = formatHandwrittenSentence(rawSentence, dynamicWidth);
 
     const hypothesis: AiHypothesis = {
       id: `hypo-${now}`,

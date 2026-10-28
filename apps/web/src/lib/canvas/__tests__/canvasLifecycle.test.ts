@@ -107,7 +107,7 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
 
     expect(spawnedCount).toBe(1);
     expect(engine.activeHypothesis).not.toBeNull();
-    expect(engine.activeHypothesis!.sentence).toContain('Svelte 5');
+    expect(engine.activeHypothesis!.sentence.replace(/\n/g, ' ')).toContain('Svelte 5');
     expect(engine.activeHypothesis!.isConfirmed).toBe(false);
     expect(engine.activeHypothesis!.isRejected).toBe(false);
   });
@@ -191,18 +191,19 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     expect(engine.activeHypothesis!.isConfirmed).toBe(false);
   });
 
-  it('formatHandwrittenSentence는 단어를 자르지 않고 최대 3줄로 균등 분할하며 원본 어절 순서를 보존해야 한다', () => {
+  it('formatHandwrittenSentence는 가용 폭에 맞춰 단어를 자르지 않고 줄바꿈하며 원본 어절 순서를 보존해야 한다', () => {
     const longText = '취소선으로 기각된 가설을 배제하고 클라우드 보안 자동화 루틴을 설계하려는 맥락인가요?';
-    const formatted = formatHandwrittenSentence(longText, 3);
+    // 가용 폭 520px 기준 어절 단위 줄바꿈
+    const formatted = formatHandwrittenSentence(longText, 520);
     const lines = formatted.split('\n');
 
+    expect(lines.length).toBeGreaterThanOrEqual(2);
     expect(lines.length).toBeLessThanOrEqual(3);
-    expect(lines.length).toBe(3);
     // 어절 순서 및 단어 원형 보존 확인
     expect(formatted.replace(/\n/g, ' ')).toBe(longText);
-    expect(lines[0]).toBe('취소선으로 기각된 가설을 배제하고');
-    expect(lines[1]).toBe('클라우드 보안 자동화');
-    expect(lines[2]).toBe('루틴을 설계하려는 맥락인가요?');
+    for (const line of lines) {
+      expect(line.trim().length).toBeGreaterThan(0);
+    }
   });
 
   it('activeHypothesis가 존재하는 동안에는 필기 증발에 의한 중복 가설 생성이 차단되어야 한다', () => {
