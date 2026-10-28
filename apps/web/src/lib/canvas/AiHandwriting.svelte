@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { TegakiEngine } from 'tegaki/core';
+  import { TegakiEngine, variationPlugin } from 'tegaki/core';
   import nanumFont from 'tegaki/fonts/nanum-pen-script';
   import { getTegakiTiming, createAirGlidePlugin } from './stylusPenPlugin';
 
@@ -72,12 +72,21 @@
       },
     });
 
+    // 손글씨 감성의 글자별 미세 랜덤 변형 플러그인 (띄어쓰기보다 작은 1~2px 자간/위치 편차 및 미세 회전)
+    const humanHandwritingVariation = variationPlugin({
+      amount: 0.85,
+      drift: '1.5px', // 띄어쓰기(14px)보다 훨씬 작은 1.5px 미세 자간 편차
+      slant: 2,       // ±2도 자연스러운 획 기울기
+      rotation: 1,    // ±1도 미세 회전
+      size: 0.04,     // ±4% 글자 크기 미세 편차
+    });
+
     try {
       engine = new TegakiEngine(targetEl, {
         text: targetText,
         font: nanumFont,
         timing,
-        plugins: [airGlidePlugin],
+        plugins: [airGlidePlugin, humanHandwritingVariation],
         onComplete: () => {
           // 대필 완료 즉시 펜 흔적 없이 완전 소멸
           if (penEl) penEl.style.display = 'none';
