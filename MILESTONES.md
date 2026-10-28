@@ -89,6 +89,7 @@
       "croppedImageBase64": "data:image/png;base64,...",
       "strokeMetadata": { "strokeCount": 12, "bbox": [100, 120, 420, 260], "canvasSize": [2400, 1800] },
       "previousEvaporatedContext": "직전에 증발한 키워드/문장 요약 (없으면 null)",
+      "activeHypothesisSentence": "현재 화면에 표출 중인 AI 가설 문장 (없으면 null)",
       "rejectedHypotheses": ["사용자가 방금 X를 쳐서 기각한 문장 목록"],
       "userContext": {
         "persona": { "role": "DevSecOps 취준생", "interests": ["사이드 프로젝트", "보안"] },
@@ -103,6 +104,7 @@
     {
       "jevDecision": {
         "isContinuousWithPrevious": { "type": "noul", "probability": 0.84, "value": true },
+        "inputClassification": { "type": "choice", "selected": "FEEDBACK_REPLY", "confidence": 0.89 },
         "strikethroughIntent": { "type": "choice", "selected": "THOUGHT_PIVOT", "confidence": 0.91 },
         "visualStructure": { "type": "choice", "selected": "CONTRAST_ARROW", "confidence": 0.88 },
         "domainRoute": { "type": "choice", "selected": "SIDE_PROJECT_SPARK", "confidence": 0.79 },
@@ -113,14 +115,22 @@
     }
     ```
 
+### 핵심 추가 기능 명세 (논의 반영)
+1. **"새 단어" vs "AI 문장에 대한 답장" 구분 인식 (가장 강조된 피드백)**:
+   - **대화 맥락**: "사용자 입력이 답장인지 새 단어인지는 판단하고 쓰게 해야지. 이후에 확장하기로 한 내용은 문장 위에 쓸 수 없는 구조인데..."
+   - **추가할 기능**: AI 문장 위가 아니라 문장 바깥 빈 여백에 사용자가 펜으로 글씨를 썼을 때, 이것이 1) AI 문장에 대한 답장/보충 설명인지(예: "아니 DB 먼저", "Redis 추가해"), 2) 완전히 무관한 새로운 독립 메모/키워드인지 위치와 맥락을 비교해 판별하고(`inputClassification`), 답장이면 해당 피드백을 반영해 새 문장을 재작성하고, 새 단어면 기존 문장과 함께 복합 추론합니다.
+2. **직전 증발 키워드와의 맥락 연속성 (Noul 시간차 추론)**:
+   - **대화 맥락**: 기획 헌법 제2조 & 3조
+   - **추가할 기능**: 이미 90초가 지나 완전히 투명해져 증발한 키워드라도, 사용자가 몇 분 뒤 새 단어를 적었을 때 "이전 키워드와 연관된 흐름인가?"를 Jev가 함께 판별(`isContinuousWithPrevious (Noul)`)하여 생각의 연속성을 복원하는 메모리 추론 체인 구축.
+
 ### 구현 체크리스트 (Milestone 2)
 - [ ] **Step 2-1: `apps/server` Hono 서버 및 메모리 휘발성(Zero-Retention) 미들웨어 구축**
   - [ ] `apps/server/src/index.ts`: Hono 앱 초기화, CORS, IP당 일일 호출 제한(In-Memory Sliding Window Rate Limiter) 구현
   - [ ] `.env.example` 작성 (`GEMINI_API_KEY`, `JEV_API_KEY`, `JEV_ENDPOINT_URL`, `PORT=8787`) — 실제 키는 절대 커밋 금지
 - [ ] **Step 2-2: System 1 (`system1Jev.ts`) & System 2 (`system2Writer.ts`) 파이프라인 구현**
   - [ ] `system1Jev.ts`: `/v1/systemone` (`Jev` / `OpenJev`) 규격 호출 및 API 키 미설정 시 Gemini Structured Output(`responseSchema`)으로 100% 동일한 `JevDecisionResult` 타입을 반환하는 듀얼 어댑터 구현
-  - [ ] **증발 후 연속성 보장**: `previousEvaporatedContext`가 존재할 때 `isContinuousWithPrevious (Noul)`를 판정하여, 이미 투명해져 사라진 뒤에 적은 단어라도 맥락이 이어지면 함께 묶어 추론하도록 구현
-  - [ ] `system2Writer.ts`: `system1Jev.ts`가 확정한 `THOUGHT_PIVOT`(취소선 의도), `visualStructure`(화살표/트리/표), 그리고 `rejectedHypotheses`(사용자가 `X` 친 오답 목록)를 제약 조건으로 받아 **단 1개의 완결된 문장**만 생성 후 메모리에서 이미지 버퍼 즉시 해제
+  - [ ] **"새 단어" vs "AI 문장 답장" 및 증발 후 연속성 보장**: `inputClassification` 판별 및 `previousEvaporatedContext`가 존재할 때 `isContinuousWithPrevious (Noul)`를 판정하여, 이미 투명해져 사라진 뒤에 적은 단어라도 맥락이 이어지면 함께 묶어 추론하도록 구현
+  - [ ] `system2Writer.ts`: `system1Jev.ts`가 확정한 `THOUGHT_PIVOT`(취소선 의도), `visualStructure`(화살표/트리/표), `inputClassification`, 그리고 `rejectedHypotheses`(사용자가 `X` 친 오답 목록)를 제약 조건으로 받아 **단 1개의 완결된 문장**만 생성 후 메모리에서 이미지 버퍼 즉시 해제
 - [ ] **Step 2-3: 프론트엔드-백엔드 실시간 연동**
   - [ ] `PaperCanvas.svelte`에서 잉크 증발 시 `/api/infer` 호출 -> 반환된 `marginBox` 여백 좌표에 `AiHandwriting.svelte`가 `sentence`를 한글 획순으로 필기
   - [ ] 사용자가 `X` 마킹 시 해당 문장을 `rejectedHypotheses` 배열에 추가해 즉시 `/api/infer` 재호출 -> 오답이 배제된 새 문장 대필 검증

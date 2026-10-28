@@ -27,9 +27,11 @@ export interface Box {
 export type StrikethroughIntent = 'THOUGHT_PIVOT' | 'TYPO_CORRECTION' | 'NONE';
 export type VisualStructure = 'CONTRAST_ARROW' | 'MIND_MAP' | 'LIST' | 'ISOLATED';
 export type DomainRoute = 'SIDE_PROJECT_SPARK' | 'DEVSECOPS_STUDY' | 'ROUTINE_TASK' | 'GENERAL_IDEA';
+export type InputClassification = 'FEEDBACK_REPLY' | 'NEW_INDEPENDENT_MEMO' | 'STRIKE_THROUGH';
 
 export interface JevDecision {
   isContinuousWithPrevious: Noul;
+  inputClassification?: Choice<InputClassification>;
   strikethroughIntent: Choice<StrikethroughIntent>;
   visualStructure: Choice<VisualStructure>;
   domainRoute: Choice<DomainRoute>;
@@ -46,3 +48,27 @@ export interface JevDecisionResult {
   extractedKeywords: ExtractedKeywords;
   sentence: string;
 }
+
+export interface StrokeMetadata {
+  strokeCount: number;
+  bbox: [number, number, number, number];
+  canvasSize: [number, number];
+}
+
+export interface InferUserContext {
+  persona?: { role?: string; interests?: string[] };
+  currentRoutineState?: string;
+  evolvingTopics?: string[];
+  recentConfirmedNotes?: string[];
+}
+
+export interface InferRequestBody {
+  croppedImageBase64: string;
+  strokeMetadata?: StrokeMetadata;
+  previousEvaporatedContext?: string | null;
+  activeHypothesisSentence?: string | null;
+  rejectedHypotheses?: string[];
+  userContext?: InferUserContext;
+}
+
+export type InferResponseBody = JevDecisionResult;
