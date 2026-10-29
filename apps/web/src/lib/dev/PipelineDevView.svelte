@@ -249,6 +249,11 @@
           </div>
 
           <div class="jev-item">
+            <span class="jk">행동 태스크 (Action Task):</span>
+            <span class="jv select-text highlight">{item.response.jevDecision.actionTask?.selected ?? 'ITEM_ACCUMULATE'}</span>
+          </div>
+
+          <div class="jev-item">
             <span class="jk">추출 키워드:</span>
             <span class="jv select-text">
               유효: [{item.response.extractedKeywords.active.join(', ')}]

@@ -44,25 +44,36 @@ async function callGeminiWriter(params: System2Params, apiKey: string): Promise<
 
   const { decision, keywords, request } = params;
   const rejected = request.rejectedHypotheses ?? [];
+  const domain = decision.domainRoute.selected;
+  const actionTask = decision.actionTask?.selected ?? 'ITEM_ACCUMULATE';
 
   const negativeConstraintPrompt =
     rejected.length > 0
       ? `\nCRITICAL NEGATIVE CONSTRAINTS (DO NOT SUGGEST OR REPEAT THESE REJECTED IDEAS):\n${rejected.map((r) => `- "${r}"`).join('\n')}\nYou must pivot to a completely different interpretation or perspective.`
       : '';
 
-  const systemInstruction = `You are System 2 of 'It!note'.
+  const systemInstruction = `You are System 2 of 'It!note', an empathetic AI thinking companion for handwritten stylus notes.
 Generate EXACTLY ONE complete, polite Korean inference question (single sentence, ending with '~맞나요?' or '~인가요?').
 Do NOT list bullet points or alternatives.
 Do NOT output line breaks or markdown blocks.
 
-Persona Policy:
-- The user's explicit input determines the primary nature of the question.
-- Even if the user is a developer or engineer, NEVER force casual daily notes (e.g. coffee, lunch, shopping, personal errands) into work, coding, or cloud infrastructure frameworks.
-- Respect the natural domain (${decision.domainRoute.selected}) of the memo.
+CRITICAL TONE & INTENT RULES (ZERO TOLERANCE FOR DATABASE EDITING TONE):
+1. NEVER ask bureaucratic database/record editing questions like "수정하는 것이 맞나요?", "변경하시겠습니까?", "입력하신 내용이 맞나요?".
+2. Infer the REAL-WORLD HUMAN ACTION (what the user actually decided, ordered, chose, or is planning in reality).
+3. The core action is determined by the intersection of [Domain: ${domain}] x [ActionTask: ${actionTask}]:
+   - SELECTION_PIVOT in ROUTINE_TASK: "A 대신 B로 주문하시려는 건가요?" or "A 대신 B로 결정하신 건가요?"
+   - SELECTION_PIVOT in SIDE_PROJECT_SPARK: "A 대신 B를 도입해 개발하시려는 계획인가요?"
+   - ALTERNATIVE_COMPARE in ROUTINE_TASK: "점심/메뉴로 A와 B 중 고민하고 계신가요?"
+   - ALTERNATIVE_COMPARE in SIDE_PROJECT_SPARK: "아키텍처/도구로 A와 B를 저울질 중이신가요?"
+   - PARAM_ADJUST: "가격을 B로 확인하셨나요?" or "일정/포트를 B로 변경하신 건가요?"
+   - PIPELINE_FLOW: "A를 거쳐 B로 마이그레이션/전환하려는 단계인가요?"
+   - CAUSE_DIAGNOSE: "문제 원인을 A로 보고 점검하시려는 건가요?"
+   - RECORD_CONFIRM: "A 일정을 완료하고 기록해 두신 건가요?"
 
 Context:
 - User Raw Input: ${request.rawTextInput ?? 'none'}
-- Decision Domain: ${decision.domainRoute.selected}
+- Inferred Domain: ${domain}
+- Inferred Action Task: ${actionTask}
 - Input Classification: ${decision.inputClassification?.selected ?? 'NEW_INDEPENDENT_MEMO'}
 - Strikethrough Intent: ${decision.strikethroughIntent.selected}
 - Active Keywords: ${keywords.active.join(', ')}
@@ -95,7 +106,7 @@ ${negativeConstraintPrompt}`;
 }
 
 /**
- * 규칙 기반 결정론적 단일 문장 합성기
+ * 규칙 기반 결정론적 단일 문장 합성기 (Domain x ActionTask 곱연산)
  */
 export function runHeuristicSystem2(params: System2Params): string {
   const { decision, keywords, request } = params;
@@ -106,6 +117,8 @@ export function runHeuristicSystem2(params: System2Params): string {
   const prevContext = request.previousEvaporatedContext;
   const inputClass = decision.inputClassification?.selected;
   const activeHypothesis = request.activeHypothesisSentence;
+  const domain = decision.domainRoute.selected;
+  const actionTask = decision.actionTask?.selected ?? 'ITEM_ACCUMULATE';
 
   // 1. AI 문장에 대한 답장/보충 설명 (FEEDBACK_REPLY)
   if (inputClass === 'FEEDBACK_REPLY' && activeHypothesis) {
@@ -115,20 +128,22 @@ export function runHeuristicSystem2(params: System2Params): string {
     return `이전 문장의 맥락에 ${activeKeywords.join(', ')} 피드백을 반영하여 다시 구성하려는 의도인가요?`;
   }
 
-  // 2. 취소선 의도 (THOUGHT_PIVOT) 반영
-  if (decision.strikethroughIntent.selected === 'THOUGHT_PIVOT' && struckOut.length > 0) {
-    const fromKeyword = struckOut[0];
-    const toKeyword = activeKeywords[0] || '대체 기술';
-    return `처음엔 ${fromKeyword}을(를) 고려했으나 ${toKeyword}(으)로 방향을 선회하려는 계획 맞나요?`;
-  }
-
-  // 3. 기각(X)된 가설 배제 및 관점 전환
+  // 2. 기각(X)된 가설 배제 및 관점 전환
   if (rejected.length > 0) {
-    // 이전 가설과 다른 관점 채택 (예: 기술 스택 대신 보안/배포 또는 실무 관점)
     if (rejected.some((r) => r.includes('가상 DOM') || r.includes('모노레포'))) {
       return '모노레포 구조보다는 gitleaks와 CI/CD 보안 파이프라인 자동화에 중점을 둔 구상 맞나요?';
     }
     return '이전 가설을 배제하고 실시간 데이터 동기화 관점에서 아키텍처를 점검하려는 의도인가요?';
+  }
+
+  // 3. 취소선 및 선택 변경 (SELECTION_PIVOT / THOUGHT_PIVOT)
+  if ((actionTask === 'SELECTION_PIVOT' || decision.strikethroughIntent.selected === 'THOUGHT_PIVOT') && struckOut.length > 0) {
+    const fromKw = struckOut.join(', ');
+    const toKw = activeKeywords.join(', ');
+    if (domain === 'ROUTINE_TASK') {
+      return `${fromKw} 대신 ${toKw}(으)로 주문하시려는 건가요?`;
+    }
+    return `처음엔 ${fromKw}을(를) 고려했으나 ${toKw}(으)로 방향을 선회하려는 계획 맞나요?`;
   }
 
   // 4. 직전 증발 키워드와의 연속성 (Noul)
@@ -136,10 +151,29 @@ export function runHeuristicSystem2(params: System2Params): string {
     return `직전에 메모한 "${prevContext}" 흐름에 이어 ${activeKeywords.join('와(과) ')}를 결합하려는 생각 맞나요?`;
   }
 
-  // 4.5. 일상 루틴 메모 (ROUTINE_TASK)
-  if (decision.domainRoute.selected === 'ROUTINE_TASK') {
-    const pivot = struckOut.length > 0 ? `${struckOut.join(', ')} 대신 ` : '';
-    return `${pivot}${activeKeywords.join(', ')} 주문 또는 지출 내역을 정리하려는 메모 맞나요?`;
+  // 5. Domain x ActionTask 곱연산 휴리스틱 매핑
+  if (actionTask === 'PARAM_ADJUST') {
+    const toKw = activeKeywords.join(', ');
+    if (domain === 'ROUTINE_TASK') {
+      return `${toKw}(으)로 가격이나 일정을 변경하여 확인하신 건가요?`;
+    }
+    return `환경 설정을 ${toKw}(으)로 조정하여 적용하려는 의도인가요?`;
+  }
+
+  if (actionTask === 'ALTERNATIVE_COMPARE') {
+    const items = activeKeywords.join('와(과) ');
+    if (domain === 'ROUTINE_TASK') {
+      return `오늘 점심이나 메뉴로 ${items} 중에서 고민하고 계신가요?`;
+    }
+    return `프로젝트 아키텍처로 ${items} 중에서 저울질하고 계신가요?`;
+  }
+
+  if (actionTask === 'CAUSE_DIAGNOSE') {
+    return `${activeKeywords.join(', ')} 문제의 원인을 파악하고 점검하시려는 가설인가요?`;
+  }
+
+  if (actionTask === 'RECORD_CONFIRM') {
+    return `${activeKeywords.join(', ')} 일정을 완료하고 기록해 두신 건가요?`;
   }
 
   // 5. 기본 최선책 문장

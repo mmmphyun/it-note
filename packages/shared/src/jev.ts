@@ -28,6 +28,14 @@ export type StrikethroughIntent = 'THOUGHT_PIVOT' | 'TYPO_CORRECTION' | 'NONE';
 export type VisualStructure = 'CONTRAST_ARROW' | 'MIND_MAP' | 'LIST' | 'ISOLATED';
 export type DomainRoute = 'SIDE_PROJECT_SPARK' | 'DEVSECOPS_STUDY' | 'ROUTINE_TASK' | 'GENERAL_IDEA';
 export type InputClassification = 'FEEDBACK_REPLY' | 'NEW_INDEPENDENT_MEMO' | 'STRIKE_THROUGH';
+export type ActionTask =
+  | 'SELECTION_PIVOT'
+  | 'ALTERNATIVE_COMPARE'
+  | 'PARAM_ADJUST'
+  | 'ITEM_ACCUMULATE'
+  | 'PIPELINE_FLOW'
+  | 'CAUSE_DIAGNOSE'
+  | 'RECORD_CONFIRM';
 
 export interface JevDecision {
   isContinuousWithPrevious: Noul;
@@ -35,6 +43,7 @@ export interface JevDecision {
   strikethroughIntent: Choice<StrikethroughIntent>;
   visualStructure: Choice<VisualStructure>;
   domainRoute: Choice<DomainRoute>;
+  actionTask?: Choice<ActionTask>;
   marginBox: Box;
 }
 

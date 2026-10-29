@@ -6,6 +6,7 @@ import type {
   VisualStructure,
   DomainRoute,
   InputClassification,
+  ActionTask,
 } from '@itnote/shared';
 
 // ponytail: stdlib fetch with structured json, no heavy ai wrapper sdk required
@@ -107,7 +108,16 @@ Crucial Persona Policy:
 - The user's explicit input content is the primary ground truth.
 - A user's profession/role (e.g., developer, student) is only a secondary background hint.
 - Developers write everyday notes too (e.g. coffee choice, lunch menu, daily errands, groceries, casual ideas).
-- NEVER force everyday personal notes into tech/work domains. Casual life notes MUST be classified as ROUTINE_TASK or GENERAL_IDEA.`;
+- NEVER force everyday personal notes into tech/work domains. Casual life notes MUST be classified as ROUTINE_TASK or GENERAL_IDEA.
+
+Action Tasks (Determine the user's primary human action):
+- SELECTION_PIVOT: Dropping a previous option and adopting an alternative (e.g. ~~초코라떼~~ 얼그레이, ~~React~~ Svelte 5).
+- ALTERNATIVE_COMPARE: Deliberating between multiple options (e.g. 국밥, 칼국수 / 모노레포 vs 멀티레포).
+- PARAM_ADJUST: Changing a numeric value, time, price, port, or version (e.g. ~~4000원~~ 4500원, ~~2시~~ 3시).
+- ITEM_ACCUMULATE: Listing multiple independent items (e.g. Docker, K8s, Helm / 우유, 계란, 빵).
+- PIPELINE_FLOW: Step-by-step sequence or transition pipeline (e.g. MongoDB -> PostgreSQL).
+- CAUSE_DIAGNOSE: Diagnosing root causes or troubleshooting hypotheses (e.g. OOM: 누수 의심).
+- RECORD_CONFIRM: Plain recording of a finalized fact or completed expense.`;
 
   const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [
     { text: prompt },
@@ -179,6 +189,26 @@ Crucial Persona Policy:
               },
               required: ['type', 'selected', 'confidence'],
             },
+            actionTask: {
+              type: 'OBJECT',
+              properties: {
+                type: { type: 'STRING', enum: ['choice'] },
+                selected: {
+                  type: 'STRING',
+                  enum: [
+                    'SELECTION_PIVOT',
+                    'ALTERNATIVE_COMPARE',
+                    'PARAM_ADJUST',
+                    'ITEM_ACCUMULATE',
+                    'PIPELINE_FLOW',
+                    'CAUSE_DIAGNOSE',
+                    'RECORD_CONFIRM',
+                  ],
+                },
+                confidence: { type: 'NUMBER' },
+              },
+              required: ['type', 'selected', 'confidence'],
+            },
             marginBox: {
               type: 'OBJECT',
               properties: {
@@ -205,6 +235,7 @@ Crucial Persona Policy:
             'strikethroughIntent',
             'visualStructure',
             'domainRoute',
+            'actionTask',
             'marginBox',
             'extractedKeywords',
           ],
@@ -229,6 +260,7 @@ Crucial Persona Policy:
       strikethroughIntent: parsed.strikethroughIntent,
       visualStructure: parsed.visualStructure,
       domainRoute: parsed.domainRoute,
+      actionTask: parsed.actionTask,
       marginBox: parsed.marginBox,
     },
     keywords: parsed.extractedKeywords ?? { active: [], struckOut: [] },
@@ -326,6 +358,26 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
     domainRoute = 'GENERAL_IDEA';
   }
 
+  // 5. 7대 행동 태스크 (ActionTask) 도출
+  let actionTask: ActionTask = 'ITEM_ACCUMULATE';
+  if (strikethroughIntent === 'THOUGHT_PIVOT' || struckOutKeywords.length > 0) {
+    if (struckOutKeywords.some((s) => /\d|원|시|분|port/i.test(s))) {
+      actionTask = 'PARAM_ADJUST';
+    } else {
+      actionTask = 'SELECTION_PIVOT';
+    }
+  } else if (visualStructure === 'CONTRAST_ARROW') {
+    actionTask = 'PIPELINE_FLOW';
+  } else if (fullTextLower.includes('vs') || fullTextLower.includes(' 또는 ') || fullTextLower.includes('고민') || fullTextLower.includes('추천')) {
+    actionTask = 'ALTERNATIVE_COMPARE';
+  } else if (/원인|누수|에러|error|fail|oom|의심|점검/.test(fullTextLower)) {
+    actionTask = 'CAUSE_DIAGNOSE';
+  } else if (/완료|결제|확정|성공|끝/.test(fullTextLower)) {
+    actionTask = 'RECORD_CONFIRM';
+  } else if (activeKeywords.length > 1) {
+    actionTask = 'ALTERNATIVE_COMPARE';
+  }
+
   return {
     decision: {
       isContinuousWithPrevious: {
@@ -352,6 +404,11 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
         type: 'choice',
         selected: domainRoute,
         confidence: 0.79,
+      },
+      actionTask: {
+        type: 'choice',
+        selected: actionTask,
+        confidence: 0.92,
       },
       marginBox: {
         type: 'box',
