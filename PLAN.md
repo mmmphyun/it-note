@@ -176,6 +176,12 @@ c:/work/it!note/
 * **Phase 3: `apps/web` Zero-UI 캔버스(30초 대기 + 1분 증발, 여유 스크롤) 및 한글 획순 단일 문장 대필 + O/X 인터랙션 구현**
 * **Phase 4: `apps/server` Dual-Process (`Jev` + `VLM`) 추론 엔진 + `O` 확정 기반 본인 맥락 누적기(`profileEnricher.ts`) 연동 및 컨테이너 패키징**
 
-### [v2 확장 백로그 — MVP 안정화 이후 진행]
+### [v2 확장 백로그 및 고도화 — 마일스톤 4]
+* **마일스톤 4: 텍스트 기반 맥락 추론 특화 온디바이스 SLM (LoRA + INT4 ONNX) 파이프라인**
+  - **아키텍처 역할 분리**: 비전 OCR(필기->단어열)과 맥락 추론(단어열->Jev 의사결정)을 엄격히 격리.
+  - **특화 SLM 선정**: `Qwen2.5-0.5B / 1.5B-Instruct` 또는 `Gemma-2-2B-IT`.
+  - **합성 데이터셋 및 LoRA 파인튜닝**: Gemini 교사 모델로 구축한 1만 건의 `[단어열 + 직전 맥락 -> Jev JSON 프리미티브]` 데이터셋으로 LoRA 학습.
+  - **온디바이스 서빙 (ONNX / WebAssembly)**: INT4 양자화를 통해 모델 크기 400MB 이하, 로컬 CPU 레이턴시 50ms 이내 서빙 달성.
+  - **효과**: 프라이버시 100% 보장(Zero-Retention), 외부 API 호출 비용 0원, AI 엔지니어링 포트폴리오(Teacher-Student LoRA + Quantization) 확립.
 * Notion OAuth 데이터베이스 자동 푸시 및 Slack Webhook 연동
 * Pro 구독자 전용 심화 기능 확장 (장기 아카이브 시맨틱 검색 등)
