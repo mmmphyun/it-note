@@ -13,7 +13,7 @@ export const api = onRequest(
     region: 'asia-northeast3',
     maxInstances: 2,
     secrets: ['GEMINI_API_KEY'],
-    cors: true,
+    cors: false,
     invoker: 'public',
   },
   getRequestListener(app.fetch)
