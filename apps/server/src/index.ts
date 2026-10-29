@@ -4,6 +4,11 @@ import { serve } from '@hono/node-server';
 import { inferRoute } from './routes/infer';
 import { createSlidingWindowRateLimiter } from './middleware/rateLimiter';
 
+// Node.js 기본 내장 환경변수 로더 (루트 .env 자동 로드)
+try {
+  process.loadEnvFile?.('.env');
+} catch {}
+
 export const app = new Hono();
 
 // 1. CORS 미들웨어 (프론트엔드 연동)

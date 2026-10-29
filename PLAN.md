@@ -97,20 +97,23 @@ flowchart TD
      * **예시**: 초기 입력이 `"DevSecOps 취준생"`뿐이었더라도, 메모가 쌓이면 본인 정보 맥락에 `"현재 진행 중인 관심사: Svelte 5 + Hono 모노레포 기반 '잇적' 앱 개발, Jev 의사결정 모델 연동, gitleaks 하드가드 구축"`이 자동으로 축적되어, 한 달 뒤에 단어 두 개만 적어도 이 누적된 본인 맥락 위에서 정확히 추론합니다.
   3. **직전 확정 문장 레퍼런스 (Recent 5-10 Confirmed Notes)**: 사용자의 선호 문장 호흡과 어투를 유지하기 위해 가장 최근 `O`를 친 문장 원문 5-10개를 함께 주입합니다.
 
-### 2.6. [ADR / v2 백로그] 온디바이스 손글씨 OCR 및 구조화 입력(Structured In -> Structured Out) 파이프라인
+### 2.6. [ADR / v2 백로그] 온디바이스 손글씨 OCR 및 SemIf-OpenJev 3-Tier 파이프라인
 * **논의 배경 (Context & Motivation)**:
-  * 경량 한국어 손글씨 OCR 모델(`VerifiedIdiot/korean-handwriting-rec` PP-OCRv5 ONNX ~15MB, `jysvai/ko-hand-ocr` 31M)의 발굴 및 제스처 기하학 결정론(Shoelace, CCW 0.1ms 판정)과의 결합 가능성 논의.
-  * 픽셀 이미지를 외부 클라우드 VLM에 통째로 전송하는 기존 방식 대비, 로컬에서 텍스트와 기하학 구조(취소선, 화살표)를 1차 추출하여 정형화된 JSON으로 변환하면:
+  * 경량 한국어 손글씨 OCR 모델(`VerifiedIdiot/korean-handwriting-rec` PP-OCRv5 ONNX ~15MB) 및 로짓 판별 엔진(`TheoLeeCJ/SemIf-OpenJev`)의 발굴.
+  * 픽셀 이미지를 외부 클라우드 VLM에 통째로 전송하는 기존 방식 대비, [로컬 OCR $\to$ 로컬 SemIf $\to$ 클라우드 LLM 윤문]으로 분리하면:
     1. **토큰 및 비용 90% 이상 절감**: 멀티모달 이미지 토큰(258~1,000+ 토큰) $\to$ 순수 텍스트 JSON 토큰(30~50 토큰). 페이로드 크기 역시 수십 KB Base64에서 수백 바이트로 축소.
     2. **완전한 Zero-Outbound 기밀성 (DevSecOps)**: 사용자의 실제 손글씨 필적과 래스터 픽셀이 외부 네트워크로 단 1바이트도 나가지 않고 로컬에서 파기됨.
-    3. **구조화된 입력 $\to$ 구조화된 출력 (Structured In $\to$ Structured Out)**: LLM에게 시각적 픽셀 해독을 요구하지 않고 `{"struckOut": ["멍고DB"], "active": ["PostgreSQL"], "relation": "CONTRAST_ARROW"}` 형태로 기호적 관계(Symbolic Relation)를 명시 주입하므로, `멍고DB`와 같은 경미한 오인식도 LLM이 `MongoDB`로 스스로 정정하여 환각 없는 정확한 가설을 생성.
+    3. **구조화된 입력 $\to$ 구조화된 출력 (Structured In $\to$ Structured Out)**: `SemIf-OpenJev`가 Qwen-1.5B 가중치에서 1회 포워드 패스 로짓 판독(Logit Readout, 30ms CPU)으로 `Noul`과 `Choice`를 확정하고, LLM에게 기호적 관계(Symbolic Relation)를 명시 주입하여 환각 없는 정확한 가설을 생성.
+* **SemIf 도입 시점 정의 (로컬 OCR과 동시 도입 필수 원칙)**:
+  * **왜 SemIf를 지금 단독 도입하지 않는가?**: `SemIf-OpenJev`는 텍스트 기호를 입력받아 선택지 로짓을 읽는 모델이며, 이미지 픽셀을 직접 읽지 못합니다. 로컬 OCR이 없다면 결국 클라우드 VLM이 이미지를 읽어야 하므로 SemIf 단독 도입은 모순이 발생합니다.
+  * **결론**: **로컬 손글씨 OCR 모델(Tier 2A)과 SemIf-OpenJev 로짓 엔진(Tier 2B)은 한 쌍의 원자적 패키지로 함께 도입**되어야만 성립합니다.
 * **잠재적 위험 및 기술적 과제 (Risks & Red Teaming)**:
   1. **텍스트 영역 탐지(Text Detection)의 부재**: 공개된 경량 모델들은 잘라낸 1줄 단어를 읽는 Recognizer이므로, 2400×1800 캔버스에서 단어 단위 Bounding Box를 분할하고 화살표/취소선 벡터와 글자 획을 분리하는 클러스터링(DBSCAN / DBNet) 전처리 파이프라인 구축 공수 발생.
   2. **연쇄 오차 전파 (Cascading Error)**: 앞단 로컬 OCR의 문자 왜곡이 심할 경우, 정형 JSON에 고정되어 뒤쪽 LLM으로 전파될 위험.
-  3. **네이티브 C++ 바인딩(`onnxruntime-node`) 배포 위험**: Windows 개발 환경과 최종 Linux Docker 배포 환경 간의 `node-gyp`, `glibc`, 아키텍처 의존성 충돌 위험.
+  3. **네이티브 C++ 바인딩(`onnxruntime-node`, `llama.cpp`) 배포 위험**: Windows 개발 환경과 최종 Linux Docker 배포 환경 간의 `node-gyp`, `glibc`, 아키텍처 의존성 충돌 위험.
 * **마일스톤 2.5를 신설하지 않고 v2 백로그로 격리한 이유 (Decision Rationale)**:
   * **핵심 비즈니스 검증 보호**: 채용 시장에서 가장 중요하게 검증되는 마일스톤 3 (카카오/구글 OAuth 소셜 로그인, 7일 드래그 온보딩, PG사 결제 승인/웹훅 멱등성, 단일 Dockerfile 배포)의 일정을 사수해야 함.
-  * **조기 최적화(Premature Optimization) 방지 (Ponytail 원칙)**: 현재 `gemini-3.8-flash` VLM이 단 1회 호출로 이미지, 화살표, 취소선, 문맥을 올인원으로 처리하고 있으므로, 로컬 모델 전환은 실제 트래픽과 API 비용이 병목이 되는 시점에 최우선 과제로 추진.
+  * **조기 최적화(Premature Optimization) 방지 (Ponytail 원칙)**: 현재 `gemini-3.8-flash` VLM이 단 1회 호출로 이미지, 화살표, 취소선, 문맥을 올인원으로 처리하고 있으므로, 3-Tier 로컬 모델 전환은 실제 트래픽과 API 비용이 병목이 되는 시점에 최우선 과제로 추진.
 
 ---
 

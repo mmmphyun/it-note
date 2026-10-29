@@ -18,6 +18,10 @@ export interface System2Params {
  * - rejectedHypotheses (X 마킹 오답) 목록을 금지 제약(Negative Constraint)으로 강제 주입
  */
 export async function runSystem2Writer(params: System2Params): Promise<string> {
+  if (process.env.NODE_ENV === 'test') {
+    return runHeuristicSystem2(params);
+  }
+
   const geminiApiKey = process.env.GEMINI_API_KEY;
 
   if (geminiApiKey) {

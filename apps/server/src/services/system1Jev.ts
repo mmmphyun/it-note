@@ -20,6 +20,10 @@ export interface System1Output {
  * 자유 텍스트 대신 정형화된 의사결정 프리미티브(Noul, Choice, Box)만 산출
  */
 export async function runSystem1Jev(request: InferRequestBody): Promise<System1Output> {
+  if (process.env.NODE_ENV === 'test') {
+    return runHeuristicSystem1(request);
+  }
+
   const jevApiKey = process.env.JEV_API_KEY;
   const jevEndpoint = process.env.JEV_ENDPOINT_URL || 'https://api.jev.ai/v1/systemone';
   const geminiApiKey = process.env.GEMINI_API_KEY;
