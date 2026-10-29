@@ -120,6 +120,7 @@
       <h2>잇적(It!note) AI 추론 파이프라인 실시간 개발자 검증기</h2>
       <div class="actions">
         <a href="/" class="btn-link">메인 캔버스</a>
+        <a href="/?view=handwriting" class="btn-link">필기 인식 분석 (?view=handwriting)</a>
         <a href="/?view=font-test" class="btn-link">획순 튜닝 룸</a>
         <button class="btn-reset" onclick={handleResetContext}>전체 맥락 초기화</button>
       </div>

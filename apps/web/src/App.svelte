@@ -5,14 +5,17 @@
   import DeskView from './lib/archive/DeskView.svelte';
   import FontTestView from './lib/dev/FontTestView.svelte';
   import PipelineDevView from './lib/dev/PipelineDevView.svelte';
+  import HandwritingOcrDevView from './lib/dev/HandwritingOcrDevView.svelte';
 
-  let currentView = $state<'canvas' | 'desk' | 'font-test' | 'dev'>('canvas');
+  let currentView = $state<'canvas' | 'desk' | 'font-test' | 'dev' | 'handwriting'>('canvas');
   let confirmedNotes = $state<ConfirmedNote[]>([]);
 
   function checkRoute() {
     const path = window.location.pathname;
     const search = new URLSearchParams(window.location.search);
-    if (path === '/dev' || search.get('view') === 'dev') {
+    if (path === '/handwriting' || search.get('view') === 'handwriting') {
+      currentView = 'handwriting';
+    } else if (path === '/dev' || search.get('view') === 'dev') {
       currentView = 'dev';
     } else if (path === '/font-test' || search.get('view') === 'font-test') {
       currentView = 'font-test';
@@ -62,6 +65,8 @@
     <FontTestView />
   {:else if currentView === 'dev'}
     <PipelineDevView />
+  {:else if currentView === 'handwriting'}
+    <HandwritingOcrDevView />
   {/if}
 </main>
 
