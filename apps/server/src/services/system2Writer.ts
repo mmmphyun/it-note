@@ -55,6 +55,11 @@ Generate EXACTLY ONE complete, polite Korean inference question (single sentence
 Do NOT list bullet points or alternatives.
 Do NOT output line breaks or markdown blocks.
 
+Persona Policy:
+- The user's explicit input determines the primary nature of the question.
+- Even if the user is a developer or engineer, NEVER force casual daily notes (e.g. coffee, lunch, shopping, personal errands) into work, coding, or cloud infrastructure frameworks.
+- Respect the natural domain (${decision.domainRoute.selected}) of the memo.
+
 Context:
 - User Raw Input: ${request.rawTextInput ?? 'none'}
 - Decision Domain: ${decision.domainRoute.selected}

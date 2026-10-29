@@ -101,7 +101,13 @@ Input:
 - Active Hypothesis on Screen: ${request.activeHypothesisSentence ?? 'null'}
 - Rejected Hypotheses (marked X): ${JSON.stringify(request.rejectedHypotheses ?? [])}
 - User Persona: ${JSON.stringify(request.userContext?.persona ?? {})}
-- Evolving Topics: ${JSON.stringify(request.userContext?.evolvingTopics ?? [])}`;
+- Evolving Topics: ${JSON.stringify(request.userContext?.evolvingTopics ?? [])}
+
+Crucial Persona Policy:
+- The user's explicit input content is the primary ground truth.
+- A user's profession/role (e.g., developer, student) is only a secondary background hint.
+- Developers write everyday notes too (e.g. coffee choice, lunch menu, daily errands, groceries, casual ideas).
+- NEVER force everyday personal notes into tech/work domains. Casual life notes MUST be classified as ROUTINE_TASK or GENERAL_IDEA.`;
 
   const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [
     { text: prompt },
@@ -300,15 +306,24 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
   const marginMaxX = Math.min(2350, marginMinX + 440);
   const marginMaxY = marginMinY + 105;
 
-  let domainRoute: DomainRoute = 'SIDE_PROJECT_SPARK';
-  const rawTextLower = (request.rawTextInput ?? '').toLowerCase();
-  if (/원|라떼|커피|밀크티|식사|점심|저녁|마트|장보기/.test(rawTextLower)) {
+  let domainRoute: DomainRoute = 'GENERAL_IDEA';
+  const fullTextLower = `${request.rawTextInput ?? ''} ${activeKeywords.join(' ')}`.toLowerCase();
+
+  // 1. 일상/생활/식음료/루틴 메모
+  if (/원|라떼|커피|밀크티|식사|점심|저녁|밥|마트|장보기|운동|헬스|일정|할일/.test(fullTextLower)) {
     domainRoute = 'ROUTINE_TASK';
-  } else {
-    const role = request.userContext?.persona?.role ?? '';
-    if (role.includes('DevSecOps') || role.includes('보안')) {
-      domainRoute = 'DEVSECOPS_STUDY';
-    }
+  }
+  // 2. 클라우드/인프라/보안 실무
+  else if (/k8s|kubernetes|docker|iam|rbac|보안|devsecops|ci\/cd|pipeline|gitleaks|aws|gcp|terraform|linux/.test(fullTextLower)) {
+    domainRoute = 'DEVSECOPS_STUDY';
+  }
+  // 3. 프로젝트/개발 기술 스택
+  else if (/svelte|react|hono|vite|vue|node|db|postgres|mongo|redis|kafka|api|모노레포|프론트|백엔드/.test(fullTextLower)) {
+    domainRoute = 'SIDE_PROJECT_SPARK';
+  }
+  // 4. 그 외 일반 아이디어 또는 페르소나 주제 참고
+  else {
+    domainRoute = 'GENERAL_IDEA';
   }
 
   return {
