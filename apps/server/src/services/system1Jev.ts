@@ -90,7 +90,7 @@ async function callGeminiStructuredJev(
   request: InferRequestBody,
   apiKey: string
 ): Promise<System1Output> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
 
   const prompt = `You are System 1 (Jev Decision Engine). Analyze the user's note input and metadata.
 Determine the decision primitives (Noul, Choice, Box) and extract active/struck-out keywords.
@@ -123,6 +123,8 @@ Input:
       contents: [{ role: 'user', parts }],
       generationConfig: {
         responseMimeType: 'application/json',
+        maxOutputTokens: 1000,
+        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: 'OBJECT',
           properties: {
@@ -272,18 +274,23 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
     } else if (raw.includes('~~') || raw.includes(' 취소 ')) {
       strikethroughIntent = 'THOUGHT_PIVOT';
       visualStructure = 'CONTRAST_ARROW';
-      const match = raw.match(/~~([^~]+)~~(.*)/);
-      if (match) {
-        struckOutKeywords.push(match[1].trim());
-        const remaining = match[2].trim();
-        if (remaining) {
-          activeKeywords.length = 0;
-          activeKeywords.push(remaining);
-        }
+      
+      // 다중 취소선 일괄 추출 (예: ~~초코라떼~~, ~~4000원~~)
+      const matches = Array.from(raw.matchAll(/~~([^~]+)~~/g));
+      for (const m of matches) {
+        struckOutKeywords.push(m[1].trim());
+      }
+
+      // 취소선 제거 후 남은 텍스트에서 활성 키워드 추출
+      const cleaned = raw.replace(/~~[^~]+~~/g, '').trim();
+      const tokens = cleaned.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+      if (tokens.length > 0) {
+        activeKeywords.length = 0;
+        activeKeywords.push(...tokens);
       }
     } else {
       activeKeywords.length = 0;
-      activeKeywords.push(...raw.split(/[\s,]+/).filter(Boolean));
+      activeKeywords.push(...raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean));
     }
   }
 
@@ -294,9 +301,14 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
   const marginMaxY = marginMinY + 105;
 
   let domainRoute: DomainRoute = 'SIDE_PROJECT_SPARK';
-  const role = request.userContext?.persona?.role ?? '';
-  if (role.includes('DevSecOps') || role.includes('보안')) {
-    domainRoute = 'DEVSECOPS_STUDY';
+  const rawTextLower = (request.rawTextInput ?? '').toLowerCase();
+  if (/원|라떼|커피|밀크티|식사|점심|저녁|마트|장보기/.test(rawTextLower)) {
+    domainRoute = 'ROUTINE_TASK';
+  } else {
+    const role = request.userContext?.persona?.role ?? '';
+    if (role.includes('DevSecOps') || role.includes('보안')) {
+      domainRoute = 'DEVSECOPS_STUDY';
+    }
   }
 
   return {

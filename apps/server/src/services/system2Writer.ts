@@ -40,7 +40,7 @@ export async function runSystem2Writer(params: System2Params): Promise<string> {
  * Gemini 기반 단일 문장 생성기
  */
 async function callGeminiWriter(params: System2Params, apiKey: string): Promise<string> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
 
   const { decision, keywords, request } = params;
   const rejected = request.rejectedHypotheses ?? [];
@@ -53,6 +53,7 @@ async function callGeminiWriter(params: System2Params, apiKey: string): Promise<
   const systemInstruction = `You are System 2 of 'It!note'.
 Generate EXACTLY ONE complete, polite Korean inference question (single sentence, ending with '~맞나요?' or '~인가요?').
 Do NOT list bullet points or alternatives.
+Do NOT output line breaks or markdown blocks.
 
 Context:
 - User Raw Input: ${request.rawTextInput ?? 'none'}
@@ -71,8 +72,9 @@ ${negativeConstraintPrompt}`;
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: systemInstruction }] }],
       generationConfig: {
-        maxOutputTokens: 120,
-        temperature: 0.4,
+        maxOutputTokens: 500,
+        temperature: 0.3,
+        thinkingConfig: { thinkingBudget: 0 },
       },
     }),
   });
@@ -83,8 +85,8 @@ ${negativeConstraintPrompt}`;
   const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
   if (!text) throw new Error('Empty text from Gemini writer');
 
-  // 첫 번째 줄 또는 단일 문장만 발췌
-  return text.split('\n')[0].replace(/^["'\s]+|["'\s]+$/g, '');
+  // 개행을 공백으로 합치고 양쪽 따옴표 정리
+  return text.replace(/\s+/g, ' ').replace(/^["'`\s]+|["'`\s]+$/g, '');
 }
 
 /**
@@ -127,6 +129,12 @@ export function runHeuristicSystem2(params: System2Params): string {
   // 4. 직전 증발 키워드와의 연속성 (Noul)
   if (isContinuous && prevContext) {
     return `직전에 메모한 "${prevContext}" 흐름에 이어 ${activeKeywords.join('와(과) ')}를 결합하려는 생각 맞나요?`;
+  }
+
+  // 4.5. 일상 루틴 메모 (ROUTINE_TASK)
+  if (decision.domainRoute.selected === 'ROUTINE_TASK') {
+    const pivot = struckOut.length > 0 ? `${struckOut.join(', ')} 대신 ` : '';
+    return `${pivot}${activeKeywords.join(', ')} 주문 또는 지출 내역을 정리하려는 메모 맞나요?`;
   }
 
   // 5. 기본 최선책 문장

@@ -2,9 +2,10 @@
   import type { InferRequestBody, InferResponseBody } from '@itnote/shared';
   import { requestInference } from '../api/inferClient';
 
-  let rawInput = $state('MongoDB -> PostgreSQL');
+  let rawInput = $state('~~초코라떼~~ 얼그레이 밀크티, ~~4000원~~ 4500원, 굿커피');
   let isLoading = $state(false);
   let errorMsg = $state<string | null>(null);
+  let copyFeedback = $state<string | null>(null);
 
   // 멀티턴 연속 맥락 상태
   let previousContext = $state<string | null>(null);
@@ -12,9 +13,14 @@
   let rejectedHypotheses = $state<string[]>([]);
   let history = $state<Array<{ input: string; response: InferResponseBody; timestamp: string }>>([]);
 
+  // 사용자 페르소나 (개발자가 실시간 수정 가능)
+  let personaRole = $state('DevSecOps 구직자 / 4학년 휴학생');
+  let evolvingTopicsInput = $state('Cloud Architecture, Database Migration');
+
   const presets = [
-    { label: '화살표 비교/전환', text: 'MongoDB -> PostgreSQL' },
-    { label: '취소 후 재작성', text: '~~React~~ Svelte 5' },
+    { label: '카페 취소/변경 (일상)', text: '~~초코라떼~~ 얼그레이 밀크티, ~~4000원~~ 4500원, 굿커피' },
+    { label: 'DB 전환 화살표', text: 'MongoDB -> PostgreSQL' },
+    { label: '기술 스택 취소 후 재작성', text: '~~React~~ Svelte 5' },
     { label: '단일 키워드', text: 'Kafka' },
     { label: '다중 키워드 나열', text: 'Docker, Kubernetes, Helm' },
     { label: '맥락 보충 피드백', text: '클라우드 비용 절감' },
@@ -24,11 +30,28 @@
     rawInput = text;
   }
 
+  async function copyText(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copyFeedback = `[${label}] 클립보드에 복사되었습니다.`;
+      setTimeout(() => {
+        copyFeedback = null;
+      }, 2500);
+    } catch {
+      copyFeedback = '복사에 실패했습니다.';
+    }
+  }
+
   async function handleSend() {
     if (!rawInput.trim() || isLoading) return;
 
     isLoading = true;
     errorMsg = null;
+
+    const topics = evolvingTopicsInput
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
 
     const payload: InferRequestBody = {
       rawTextInput: rawInput.trim(),
@@ -36,8 +59,8 @@
       activeHypothesisSentence: activeHypothesis,
       rejectedHypotheses: [...rejectedHypotheses],
       userContext: {
-        persona: { role: 'DevSecOps 구직자 / 4학년 휴학생' },
-        evolvingTopics: ['Cloud Architecture', 'Database Migration'],
+        persona: { role: personaRole.trim() },
+        evolvingTopics: topics,
       },
     };
 
@@ -106,6 +129,23 @@
     </p>
   </header>
 
+  <section class="persona-box">
+    <div class="persona-header">
+      <span class="persona-title">주입 중인 사용자 맥락 (더미 페르소나 설정)</span>
+      <span class="persona-hint">이 설정값에 따라 추론 도메인 및 질문 맥락이 반응합니다.</span>
+    </div>
+    <div class="persona-fields">
+      <label class="p-field">
+        <span class="p-label">역할 (Role):</span>
+        <input type="text" bind:value={personaRole} placeholder="예: DevSecOps 구직자, 카페 손님, 프론트엔드 개발자" />
+      </label>
+      <label class="p-field">
+        <span class="p-label">관심/진행 주제 (콤마 구분):</span>
+        <input type="text" bind:value={evolvingTopicsInput} placeholder="예: Cloud Architecture, Database Migration" />
+      </label>
+    </div>
+  </section>
+
   <section class="control-panel">
     <div class="presets-row">
       <span class="label">빠른 프리셋:</span>
@@ -119,7 +159,7 @@
         type="text"
         bind:value={rawInput}
         onkeydown={handleKeydown}
-        placeholder="단어 관계 입력 (예: MongoDB -> PostgreSQL 또는 ~~Redis~~ Memcached)"
+        placeholder="단어 관계 입력 (예: ~~초코라떼~~ 얼그레이 밀크티, ~~4000원~~ 4500원, 굿커피)"
         disabled={isLoading}
       />
       <button class="btn-send" onclick={handleSend} disabled={isLoading || !rawInput.trim()}>
@@ -131,22 +171,26 @@
     <div class="context-bar">
       <div class="context-item">
         <span class="k">직전 증발 맥락:</span>
-        <span class="v">{previousContext ?? '(없음 - 첫 입력)'}</span>
+        <span class="v select-text">{previousContext ?? '(없음 - 첫 입력)'}</span>
       </div>
       {#if activeHypothesis}
         <div class="context-item">
           <span class="k">현재 활성 가설:</span>
-          <span class="v highlight">{activeHypothesis}</span>
+          <span class="v highlight select-text">{activeHypothesis}</span>
           <button class="btn-reject" onclick={handleRejectCurrent}>X 마킹 (기각 제약 추가)</button>
         </div>
       {/if}
       {#if rejectedHypotheses.length > 0}
         <div class="context-item rejected">
           <span class="k">기각된 오답 목록 (X):</span>
-          <span class="v">{rejectedHypotheses.join(' | ')}</span>
+          <span class="v select-text">{rejectedHypotheses.join(' | ')}</span>
         </div>
       {/if}
     </div>
+
+    {#if copyFeedback}
+      <div class="toast-feedback">{copyFeedback}</div>
+    {/if}
 
     {#if errorMsg}
       <div class="error-banner">{errorMsg}</div>
@@ -162,19 +206,23 @@
     {#each history as item}
       <div class="result-card">
         <div class="card-header">
-          <span class="user-input">입력: <strong>{item.input}</strong></span>
-          <span class="time">{item.timestamp}</span>
+          <span class="user-input select-text">입력: <strong>{item.input}</strong></span>
+          <div class="header-right">
+            <span class="time">{item.timestamp}</span>
+            <button class="btn-copy-sm" onclick={() => copyText(item.response.sentence, '생성 문장')}>문장 복사</button>
+            <button class="btn-copy-sm" onclick={() => copyText(JSON.stringify(item.response, null, 2), 'JSON')}>JSON 복사</button>
+          </div>
         </div>
 
         <div class="sentence-box">
           <span class="sentence-label">System 2 생성 문장:</span>
-          <p class="sentence-text">"{item.response.sentence}"</p>
+          <p class="sentence-text select-text">"{item.response.sentence}"</p>
         </div>
 
         <div class="jev-grid">
           <div class="jev-item">
             <span class="jk">맥락 연속성 (Noul):</span>
-            <span class="jv" class:active-bool={item.response.jevDecision.isContinuousWithPrevious.value}>
+            <span class="jv select-text" class:active-bool={item.response.jevDecision.isContinuousWithPrevious.value}>
               {item.response.jevDecision.isContinuousWithPrevious.value ? '연속됨 (True)' : '독립적 (False)'}
               ({(item.response.jevDecision.isContinuousWithPrevious.probability * 100).toFixed(0)}%)
             </span>
@@ -182,27 +230,27 @@
 
           <div class="jev-item">
             <span class="jk">입력 분류 (Classification):</span>
-            <span class="jv">{item.response.jevDecision.inputClassification?.selected ?? 'NEW_INDEPENDENT_MEMO'}</span>
+            <span class="jv select-text">{item.response.jevDecision.inputClassification?.selected ?? 'NEW_INDEPENDENT_MEMO'}</span>
           </div>
 
           <div class="jev-item">
             <span class="jk">취소선 의도 (Strikethrough):</span>
-            <span class="jv">{item.response.jevDecision.strikethroughIntent.selected}</span>
+            <span class="jv select-text">{item.response.jevDecision.strikethroughIntent.selected}</span>
           </div>
 
           <div class="jev-item">
             <span class="jk">시각적 구조 (Visual):</span>
-            <span class="jv">{item.response.jevDecision.visualStructure.selected}</span>
+            <span class="jv select-text">{item.response.jevDecision.visualStructure.selected}</span>
           </div>
 
           <div class="jev-item">
             <span class="jk">도메인 분류 (Domain):</span>
-            <span class="jv">{item.response.jevDecision.domainRoute.selected}</span>
+            <span class="jv select-text">{item.response.jevDecision.domainRoute.selected}</span>
           </div>
 
           <div class="jev-item">
             <span class="jk">추출 키워드:</span>
-            <span class="jv">
+            <span class="jv select-text">
               유효: [{item.response.extractedKeywords.active.join(', ')}]
               {#if item.response.extractedKeywords.struckOut.length > 0}
                 / 취소: [{item.response.extractedKeywords.struckOut.join(', ')}]
@@ -216,16 +264,33 @@
 </div>
 
 <style>
+  :global(*) {
+    /* 개발자 검증기 내에서는 모든 텍스트 드래그 및 복사를 100% 허용 */
+    user-select: text !important;
+    -webkit-user-select: text !important;
+  }
+
   .dev-container {
     max-width: 960px;
     margin: 0 auto;
-    padding: 32px 24px;
+    padding: 32px 24px 80px 24px;
+    height: 100vh;
+    overflow-y: auto !important;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #2b2b2b;
+    box-sizing: border-box;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+  }
+
+  .select-text {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    cursor: text;
   }
 
   .dev-header {
-    margin-bottom: 24px;
+    margin-bottom: 20px;
     border-bottom: 2px solid #eaeaea;
     padding-bottom: 16px;
   }
@@ -234,6 +299,12 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+  }
+
+  .title-row h2 {
+    margin: 0;
+    font-size: 22px;
+    color: #1a1a1a;
   }
 
   .actions {
@@ -249,16 +320,11 @@
     padding: 6px 12px;
     border-radius: 6px;
     font-size: 12px;
+    cursor: pointer;
   }
 
   .btn-link:hover {
     background: #ded9cf;
-  }
-
-  .title-row h2 {
-    margin: 0;
-    font-size: 22px;
-    color: #1a1a1a;
   }
 
   .desc {
@@ -273,6 +339,62 @@
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 13px;
+  }
+
+  .persona-box {
+    background: #f8f6f0;
+    border: 1px solid #e5dfd5;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+  }
+
+  .persona-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .persona-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #4b5563;
+  }
+
+  .persona-hint {
+    font-size: 12px;
+    color: #888;
+  }
+
+  .persona-fields {
+    display: flex;
+    gap: 16px;
+  }
+
+  .p-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .p-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+  }
+
+  .p-field input {
+    padding: 8px 12px;
+    font-size: 13px;
+    border: 1px solid #d1cbbf;
+    border-radius: 6px;
+    background: #fff;
+    outline: none;
+  }
+
+  .p-field input:focus {
+    border-color: #3b82f6;
   }
 
   .control-panel {
@@ -386,7 +508,7 @@
 
   .context-item .v.highlight {
     color: #2563eb;
-    font-weight: 500;
+    font-weight: 600;
   }
 
   .btn-reject {
@@ -402,6 +524,16 @@
 
   .context-item.rejected .v {
     color: #dc2626;
+  }
+
+  .toast-feedback {
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: #dcfce7;
+    color: #166534;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
   }
 
   .error-banner {
@@ -439,6 +571,7 @@
   .card-header {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     margin-bottom: 12px;
     font-size: 14px;
   }
@@ -447,9 +580,29 @@
     color: #1e40af;
   }
 
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .card-header .time {
     color: #888;
     font-size: 12px;
+  }
+
+  .btn-copy-sm {
+    padding: 3px 8px;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #334155;
+    cursor: pointer;
+  }
+
+  .btn-copy-sm:hover {
+    background: #e2e8f0;
   }
 
   .sentence-box {
