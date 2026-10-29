@@ -4,12 +4,12 @@
   "type": "module",
   "main": "dist/functions.cjs",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "build:functions": "esbuild src/functions.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/functions.cjs --external:firebase-admin --external:firebase-functions",
+    "build:functions": "esbuild src/functions.ts --bundle --platform=node --target=node22 --format=cjs --outfile=deploy/index.cjs --external:firebase-admin --external:firebase-functions",
     "check": "tsc --noEmit"
   },
   "dependencies": {

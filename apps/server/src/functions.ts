@@ -1,6 +1,6 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { getRequestListener } from '@hono/node-server';
-import { app } from './index';
+import { app } from './app';
 
 /**
  * Firebase Cloud Functions v2 Hono Entrypoint
@@ -14,6 +14,7 @@ export const api = onRequest(
     maxInstances: 2,
     secrets: ['GEMINI_API_KEY'],
     cors: true,
+    invoker: 'public',
   },
   getRequestListener(app.fetch)
 );

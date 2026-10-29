@@ -22,7 +22,7 @@
   },
   "functions": [
     {
-      "source": "apps/server",
+      "source": "apps/server/deploy",
       "codebase": "default",
       "ignore": [
         "node_modules",

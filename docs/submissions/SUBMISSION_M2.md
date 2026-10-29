@@ -21,15 +21,19 @@
   * Jev 의사결정 프리미티브 스키마 일치성 테스트 (`jevAdapter.test.ts`).
   * 증발 후 연속성(Noul) 및 AI 문장 피드백 답장 분류 테스트 (`continuity.test.ts`).
   * 기각된 문장 금지 제약 주입 및 취소선 선회 문장 생성 테스트 (`rejectionRefinement.test.ts`).
-  * 총 7개 테스트 스위트, 39개 테스트 전건 무결 통과.
+  * 단어 동그라미 선택 및 시각적 마킹 테스트 (`visualMarkings.test.ts`).
+  * 총 8개 테스트 스위트, 42개 테스트 전건 무결 통과.
+* **Firebase Cloud Functions v2 무중단 라이브 백엔드 배포 (`apps/server`)**:
+  * Google Secret Manager 연동으로 `GEMINI_API_KEY` 노출 제로 유지.
+  * 서울 리전(`asia-northeast3`) Cloud Functions v2(`onRequest`, `invoker: 'public'`) 배포 완료.
+  * Firebase Hosting 단일 도메인(`/api/**` Rewrite) 연동으로 CORS 이슈 없는 무중단 라이브 추론 환경 구축.
 
 ---
 
 ### 확인하는 방법 · 3단계 이내
-1. **서버 및 클라이언트 실행**:
-   * 터미널 1: `npm run --workspace=apps/server dev` (Hono 백엔드 `http://localhost:8787` 구동)
-   * 터미널 2: `npm run dev` (Vite 프론트엔드 `http://localhost:5173` 구동)
-   * 브라우저에서 `http://localhost:5173/?fast=1` 접속 (`?fast=1` 파라미터로 3초 대기 후 5초 증발 동작).
+1. **라이브 접속**:
+   * 브라우저에서 `https://it-note-app.web.app/?fast=1` 에 접속합니다.
+   * (로컬 환경 검증 시: `npm run dev` 실행 후 `http://localhost:5173/?fast=1` 접속)
 2. **취소선 및 맥락 연속성 필기 확인**:
    * 캔버스에 `몽고DB`를 적고 취소선으로 지운 뒤 옆에 화살표(`->`)와 `PostgreSQL`을 적고 손을 뗍니다.
    * 잉크가 증발한 뒤, AI가 여백에 "단순히 PostgreSQL을 쓴다"가 아니라 **"처음엔 몽고DB를 고려했으나 PostgreSQL로 방향을 선회하려는 계획 맞나요?"**라는 취소선 맥락을 반영한 1문장을 한글 획순대로 적는 것을 확인합니다.
