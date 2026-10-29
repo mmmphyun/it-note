@@ -116,87 +116,89 @@
 
 <div class="dev-container">
   <header class="dev-header">
-    <div class="title-row">
-      <h2>잇적(It!note) AI 추론 파이프라인 실시간 개발자 검증기</h2>
-      <div class="actions">
-        <a href="/" class="btn-link">메인 캔버스</a>
-        <a href="/?view=handwriting" class="btn-link">필기 인식 분석 (?view=handwriting)</a>
-        <a href="/?view=font-test" class="btn-link">획순 튜닝 룸</a>
-        <button class="btn-reset" onclick={handleResetContext}>전체 맥락 초기화</button>
-      </div>
+    <div class="title-wrap">
+      <h1>잇적(It!note) AI 추론 파이프라인 개발자 검증기</h1>
+      <p class="desc">
+        타이핑으로 단어 관계(화살표 <code>-&gt;</code>, 취소선 <code>~~단어~~</code>, 선택 <code>(선택지)</code>)를 입력하여 Gemini System 1(의사결정)과 System 2(단일 문장) 및 멀티턴 맥락 연속성을 실시간 검증합니다.
+      </p>
     </div>
-    <p class="desc">
-      손글씨 좌표 대신 타이핑으로 단어 관계(화살표 <code>-&gt;</code>, 취소선 <code>~~단어~~</code>)를 입력하여 Gemini의 System 1(Jev 의사결정)과 System 2(단일 문장 생성) 및 재전송 시 맥락 연속성을 실시간 검증합니다.
-    </p>
+    <div class="nav-links">
+      <a href="/?view=font-test" class="btn secondary">획순 튜닝 룸</a>
+      <a href="/?view=handwriting" class="btn secondary">필기 인식 분석</a>
+      <a href="/?view=dev" class="btn primary">추론 파이프라인</a>
+      <a href="/" class="btn secondary">캔버스 기본</a>
+      <button class="btn secondary btn-reset" onclick={handleResetContext}>전체 맥락 초기화</button>
+    </div>
   </header>
 
-  <section class="persona-box">
-    <div class="persona-header">
-      <span class="persona-title">주입 중인 사용자 맥락 (더미 페르소나 설정)</span>
-      <span class="persona-hint">이 설정값에 따라 추론 도메인 및 질문 맥락이 반응합니다.</span>
-    </div>
-    <div class="persona-fields">
-      <label class="p-field">
-        <span class="p-label">역할 (Role):</span>
-        <input type="text" bind:value={personaRole} placeholder="예: DevSecOps 구직자, 카페 손님, 프론트엔드 개발자" />
-      </label>
-      <label class="p-field">
-        <span class="p-label">관심/진행 주제 (콤마 구분):</span>
-        <input type="text" bind:value={evolvingTopicsInput} placeholder="예: Cloud Architecture, Database Migration" />
-      </label>
-    </div>
-  </section>
-
-  <section class="control-panel">
-    <div class="presets-row">
-      <span class="label">빠른 프리셋:</span>
-      {#each presets as p}
-        <button class="btn-preset" onclick={() => applyPreset(p.text)}>{p.label}</button>
-      {/each}
-    </div>
-
-    <div class="input-line">
-      <input
-        type="text"
-        bind:value={rawInput}
-        onkeydown={handleKeydown}
-        placeholder="단어 관계 입력 (예: ~~초코라떼~~ 얼그레이 밀크티, ~~4000원~~ 4500원, 굿커피)"
-        disabled={isLoading}
-      />
-      <button class="btn-send" onclick={handleSend} disabled={isLoading || !rawInput.trim()}>
-        {isLoading ? '추론 중...' : 'Gemini 추론 전송'}
-      </button>
-    </div>
-
-    <!-- 현재 누적된 맥락 상태 -->
-    <div class="context-bar">
-      <div class="context-item">
-        <span class="k">직전 증발 맥락:</span>
-        <span class="v select-text">{previousContext ?? '(없음 - 첫 입력)'}</span>
+  <main class="dev-main">
+    <section class="persona-box">
+      <div class="persona-header">
+        <span class="persona-title">주입 중인 사용자 맥락 (더미 페르소나 설정)</span>
+        <span class="persona-hint">이 설정값에 따라 추론 도메인 및 질문 맥락이 반응합니다.</span>
       </div>
-      {#if activeHypothesis}
+      <div class="persona-fields">
+        <label class="p-field">
+          <span class="p-label">역할 (Role):</span>
+          <input type="text" bind:value={personaRole} placeholder="예: DevSecOps 구직자, 카페 손님, 프론트엔드 개발자" />
+        </label>
+        <label class="p-field">
+          <span class="p-label">관심/진행 주제 (콤마 구분):</span>
+          <input type="text" bind:value={evolvingTopicsInput} placeholder="예: Cloud Architecture, Database Migration" />
+        </label>
+      </div>
+    </section>
+
+    <section class="control-panel">
+      <div class="presets-row">
+        <span class="label">빠른 프리셋:</span>
+        {#each presets as p}
+          <button class="btn-preset" onclick={() => applyPreset(p.text)}>{p.label}</button>
+        {/each}
+      </div>
+
+      <div class="input-line">
+        <input
+          type="text"
+          bind:value={rawInput}
+          onkeydown={handleKeydown}
+          placeholder="단어 관계 입력 (예: ~~초코라떼~~ 얼그레이 밀크티, ~~4000원~~ 4500원, 굿커피)"
+          disabled={isLoading}
+        />
+        <button class="btn btn-send" onclick={handleSend} disabled={isLoading || !rawInput.trim()}>
+          {isLoading ? '추론 중...' : 'Gemini 추론 전송'}
+        </button>
+      </div>
+
+      <!-- 현재 누적된 맥락 상태 -->
+      <div class="context-bar">
         <div class="context-item">
-          <span class="k">현재 활성 가설:</span>
-          <span class="v highlight select-text">{activeHypothesis}</span>
-          <button class="btn-reject" onclick={handleRejectCurrent}>X 마킹 (기각 제약 추가)</button>
+          <span class="k">직전 증발 맥락:</span>
+          <span class="v select-text">{previousContext ?? '(없음 - 첫 입력)'}</span>
         </div>
-      {/if}
-      {#if rejectedHypotheses.length > 0}
-        <div class="context-item rejected">
-          <span class="k">기각된 오답 목록 (X):</span>
-          <span class="v select-text">{rejectedHypotheses.join(' | ')}</span>
-        </div>
-      {/if}
-    </div>
+        {#if activeHypothesis}
+          <div class="context-item">
+            <span class="k">현재 활성 가설:</span>
+            <span class="v highlight select-text">{activeHypothesis}</span>
+            <button class="btn-reject" onclick={handleRejectCurrent}>X 마킹 (기각 제약 추가)</button>
+          </div>
+        {/if}
+        {#if rejectedHypotheses.length > 0}
+          <div class="context-item rejected">
+            <span class="k">기각된 오답 목록 (X):</span>
+            <span class="v select-text">{rejectedHypotheses.join(' | ')}</span>
+          </div>
+        {/if}
+      </div>
 
-    {#if copyFeedback}
-      <div class="toast-feedback">{copyFeedback}</div>
-    {/if}
+      {#if copyFeedback}
+        <div class="toast-feedback">{copyFeedback}</div>
+      {/if}
 
-    {#if errorMsg}
-      <div class="error-banner">{errorMsg}</div>
-    {/if}
-  </section>
+      {#if errorMsg}
+        <div class="error-banner">{errorMsg}</div>
+      {/if}
+    </section>
 
   <section class="results-list">
     <h3>추론 히스토리 ({history.length}건)</h3>
@@ -266,25 +268,12 @@
         </div>
       </div>
     {/each}
-  </section>
+    </section>
+  </main>
 </div>
 
 <style>
   :global(*) {
-    /* 개발자 검증기 내에서는 모든 텍스트 드래그 및 복사를 100% 허용 */
-    user-select: text !important;
-    -webkit-user-select: text !important;
-  }
-
-  .dev-container {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 32px 24px 80px 24px;
-    height: 100vh;
-    overflow-y: auto !important;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    color: #2b2b2b;
-    box-sizing: border-box;
     user-select: text !important;
     -webkit-user-select: text !important;
   }
@@ -295,48 +284,38 @@
     cursor: text;
   }
 
-  .dev-header {
-    margin-bottom: 20px;
-    border-bottom: 2px solid #eaeaea;
-    padding-bottom: 16px;
+  .dev-container {
+    width: 100vw;
+    height: 100vh;
+    overflow-y: auto !important;
+    background: #f4efe9;
+    color: #2b2b2b;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px 32px;
+    box-sizing: border-box;
   }
 
-  .title-row {
+  .dev-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    background: #fff;
+    padding: 20px 24px;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    margin-bottom: 24px;
   }
 
-  .title-row h2 {
+  .title-wrap h1 {
+    font-size: 20px;
+    font-weight: 700;
     margin: 0;
-    font-size: 22px;
-    color: #1a1a1a;
-  }
-
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .btn-link {
-    text-decoration: none;
-    background: #eae6df;
-    color: #444;
-    padding: 6px 12px;
-    border-radius: 6px;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .btn-link:hover {
-    background: #ded9cf;
   }
 
   .desc {
-    margin: 8px 0 0 0;
-    font-size: 14px;
+    font-size: 13px;
     color: #666;
+    margin-top: 4px;
     line-height: 1.5;
   }
 
@@ -347,24 +326,79 @@
     font-size: 13px;
   }
 
+  .nav-links {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .btn {
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    text-decoration: none;
+    cursor: pointer;
+    border: 1px solid transparent;
+    font-weight: 500;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .btn.primary {
+    background: #2b2b2b;
+    color: #fff;
+  }
+
+  .btn.primary:hover {
+    background: #444;
+  }
+
+  .btn.secondary {
+    background: #fff;
+    color: #333;
+    border-color: #ddd;
+  }
+
+  .btn.secondary:hover {
+    background: #f7f7f7;
+  }
+
+  .btn-reset {
+    background: #fee2e2 !important;
+    color: #b91c1c !important;
+    border-color: #fca5a5 !important;
+  }
+
+  .btn-reset:hover {
+    background: #fecaca !important;
+  }
+
+  .dev-main {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
   .persona-box {
-    background: #f8f6f0;
-    border: 1px solid #e5dfd5;
-    border-radius: 8px;
-    padding: 14px 18px;
-    margin-bottom: 18px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 18px 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   .persona-header {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
   }
 
   .persona-title {
     font-size: 13px;
     font-weight: 700;
-    color: #4b5563;
+    color: #334155;
   }
 
   .persona-hint {
@@ -404,11 +438,11 @@
   }
 
   .control-panel {
-    background: #fcfbf9;
-    border: 1px solid #e5e0d8;
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 32px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   .presets-row {
@@ -422,21 +456,23 @@
   .presets-row .label {
     font-size: 13px;
     font-weight: 600;
-    color: #777;
+    color: #64748b;
   }
 
   .btn-preset {
-    background: #fff;
-    border: 1px solid #d0cbc3;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
     padding: 4px 10px;
     border-radius: 14px;
     font-size: 12px;
     cursor: pointer;
-    color: #444;
+    color: #334155;
+    transition: all 0.15s;
   }
 
   .btn-preset:hover {
-    background: #f0ece6;
+    background: #e2e8f0;
+    border-color: #94a3b8;
   }
 
   .input-line {
@@ -447,28 +483,31 @@
 
   .input-line input {
     flex: 1;
-    padding: 12px 16px;
-    font-size: 15px;
-    border: 1px solid #ccc;
+    padding: 10px 14px;
+    border: 1px solid #cbd5e1;
     border-radius: 6px;
+    font-size: 14px;
     outline: none;
   }
 
   .input-line input:focus {
     border-color: #3b82f6;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
   }
 
   .btn-send {
-    padding: 0 24px;
     background: #2563eb;
     color: #fff;
     border: none;
-    border-radius: 6px;
-    font-size: 14px;
+    padding: 0 20px;
     font-weight: 600;
+    border-radius: 6px;
     cursor: pointer;
     white-space: nowrap;
+    transition: background 0.15s;
+  }
+
+  .btn-send:hover:not(:disabled) {
+    background: #1d4ed8;
   }
 
   .btn-send:disabled {
@@ -476,18 +515,9 @@
     cursor: not-allowed;
   }
 
-  .btn-reset {
-    background: #ef4444;
-    color: white;
-    border: none;
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
   .context-bar {
-    background: #f4f0eb;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
     border-radius: 6px;
     padding: 12px 16px;
     font-size: 13px;

@@ -89,7 +89,8 @@ Specific Chosen & Feedback Handling:
   If 'isContinuousWithPrevious' is true and 'Previous Evaporated Context' is present (e.g. "국밥"):
   The user is developing a continuous thought from that previous topic.
   You MUST combine the Previous Evaporated Context with the current choice/action into a single coherent sentence.
-  Example: Previous context "국밥" + Current choice "순대, (수육)" -> "국밥에 순대 대신 수육을 곁들여 주문하시려는 건가요?" or "국밥과 함께 드실 메뉴로 순대 대신 수육을 선택하신 건가요?"
+  Example: Previous context "국밥" + Current choice "순대, (수육)" -> "순대국밥 대신 수육국밥으로 정하신 건가요?" or "국밥에 순대 대신 수육으로 결정하신 건가요?"
+  Synthesize compound everyday Korean expressions naturally (e.g. 국밥 + 순대/수육 -> 순대국밥/수육국밥).
   NEVER omit or drop the Previous Evaporated Context when continuity is established!
 - If Chosen Keywords exist (e.g. user circled an option among alternatives, such as choosing '수육' from '순대, 수육'):
   Formulate a direct question confirming that specific choice. Mention the alternatives being dropped if any.

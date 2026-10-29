@@ -223,50 +223,52 @@
   });
 </script>
 
-<div class="ocr-dev-container">
+<div class="dev-container">
   <header class="dev-header">
-    <div class="title-row">
-      <h2>잇적 (It!note) 필기 인식 & 입력 데이터 분석기</h2>
-      <div class="nav-links">
-        <a href="/" class="btn-link">메인 캔버스</a>
-        <a href="/?view=dev" class="btn-link">추론 파이프라인 (?view=dev)</a>
-        <a href="/?view=font-test" class="btn-link">획순 튜닝 룸</a>
-      </div>
+    <div class="title-wrap">
+      <h1>잇적(It!note) 필기 인식 & 입력 데이터 분석기</h1>
+      <p class="desc">
+        스타일러스 펜으로 캔버스에 글씨나 기호(<code>-&gt;</code>, <code>취소선</code>, <code>단어 동그라미</code>)를 작성하고, 실시간 추출 좌표·크롭 이미지·Gemini VLM JSON 페이로드를 확인 및 복사합니다.
+      </p>
     </div>
-    <p class="desc">
-      스타일러스 펜이나 마우스로 캔버스에 직접 글씨를 작성하고, <strong>1) 실시간 추출되는 필기 좌표 및 바운딩 박스</strong>, <strong>2) 크롭된 PNG Base64 이미지</strong>, <strong>3) Gemini 백엔드로 전달되는 JSON 페이로드 구조</strong>를 정밀 확인 및 복사합니다.
-    </p>
+    <div class="nav-links">
+      <a href="/?view=font-test" class="btn secondary">획순 튜닝 룸</a>
+      <a href="/?view=handwriting" class="btn primary">필기 인식 분석</a>
+      <a href="/?view=dev" class="btn secondary">추론 파이프라인</a>
+      <a href="/" class="btn secondary">캔버스 기본</a>
+    </div>
   </header>
 
-  <!-- 1. 스타일러스 드로잉 패드 -->
-  <section class="pad-section">
-    <!-- 직전 증발 맥락 및 가설 주입 바 -->
-    <div class="context-injection-bar">
-      <div class="ctx-input-group">
-        <label for="prev-ctx">직전 증발 맥락 (Previous Evaporated):</label>
-        <input
-          id="prev-ctx"
-          type="text"
-          bind:value={previousEvaporatedContextInput}
-          placeholder="예: 국밥, 오늘 점심 메뉴 (비워두면 단독 필기)"
-        />
+  <main class="dev-main">
+    <!-- 1. 스타일러스 드로잉 패드 -->
+    <section class="pad-section">
+      <!-- 직전 증발 맥락 및 가설 주입 바 -->
+      <div class="context-injection-bar">
+        <div class="ctx-input-group">
+          <label for="prev-ctx">직전 증발 맥락:</label>
+          <input
+            id="prev-ctx"
+            type="text"
+            bind:value={previousEvaporatedContextInput}
+            placeholder="예: 국밥, 오늘 점심 메뉴 (비워두면 단독 필기)"
+          />
+        </div>
+        <div class="ctx-input-group">
+          <label for="active-hypo">화면 활성 가설:</label>
+          <input
+            id="active-hypo"
+            type="text"
+            bind:value={activeHypothesisSentenceInput}
+            placeholder="예: 오늘 점심은 순대국밥 어떠신가요? (비워두면 신규 메모)"
+          />
+        </div>
+        <div class="ctx-btn-group">
+          <button class="btn-ctx" onclick={() => (previousEvaporatedContextInput = '국밥')}>샘플: 국밥</button>
+          <button class="btn-ctx-clear" onclick={handleClearContext}>맥락 초기화</button>
+        </div>
       </div>
-      <div class="ctx-input-group">
-        <label for="active-hypo">화면 활성 가설 (Active Hypothesis):</label>
-        <input
-          id="active-hypo"
-          type="text"
-          bind:value={activeHypothesisSentenceInput}
-          placeholder="예: 오늘 점심은 순대국밥 어떠신가요? (비워두면 신규 메모)"
-        />
-      </div>
-      <div class="ctx-btn-group">
-        <button class="btn-ctx" onclick={() => (previousEvaporatedContextInput = '국밥')}>샘플: 국밥</button>
-        <button class="btn-ctx-clear" onclick={handleClearContext}>맥락 초기화</button>
-      </div>
-    </div>
 
-    <div class="pad-toolbar">
+      <div class="pad-toolbar">
       <div class="pad-info">
         <span class="badge">손글씨 캔버스</span>
         <span class="sub">마우스 드래그 또는 펜으로 글씨나 기호(<code>-&gt;</code>, <code>취소선</code>, <code>단어 동그라미</code>)를 적어보세요.</span>
@@ -458,6 +460,7 @@
       {/if}
     </section>
   {/if}
+  </main>
 </div>
 
 <style>
@@ -466,14 +469,14 @@
     -webkit-user-select: text !important;
   }
 
-  .ocr-dev-container {
-    max-width: 1020px;
-    margin: 0 auto;
-    padding: 32px 24px 80px 24px;
+  .dev-container {
+    width: 100vw;
     height: 100vh;
     overflow-y: auto !important;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f4efe9;
     color: #2b2b2b;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px 32px;
     box-sizing: border-box;
   }
 
@@ -484,56 +487,86 @@
   }
 
   .dev-header {
-    margin-bottom: 24px;
-    border-bottom: 2px solid #eaeaea;
-    padding-bottom: 16px;
-  }
-
-  .title-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    background: #fff;
+    padding: 20px 24px;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    margin-bottom: 24px;
   }
 
-  .title-row h2 {
+  .title-wrap h1 {
+    font-size: 20px;
+    font-weight: 700;
     margin: 0;
-    font-size: 22px;
-    color: #1a1a1a;
+  }
+
+  .desc {
+    font-size: 13px;
+    color: #666;
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  .desc code {
+    background: #f1f1f1;
+    padding: 2px 4px;
+    border-radius: 3px;
   }
 
   .nav-links {
     display: flex;
-    align-items: center;
     gap: 8px;
+    align-items: center;
   }
 
-  .btn-link {
-    text-decoration: none;
-    background: #eae6df;
-    color: #444;
-    padding: 6px 12px;
+  .btn {
+    padding: 8px 14px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: 13px;
+    text-decoration: none;
+    cursor: pointer;
+    border: 1px solid transparent;
+    font-weight: 500;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  .btn-link:hover {
-    background: #ded9cf;
+  .btn.primary {
+    background: #2b2b2b;
+    color: #fff;
   }
 
-  .desc {
-    margin: 8px 0 0 0;
-    font-size: 14px;
-    color: #666;
-    line-height: 1.5;
+  .btn.primary:hover {
+    background: #444;
+  }
+
+  .btn.secondary {
+    background: #fff;
+    color: #333;
+    border-color: #ddd;
+  }
+
+  .btn.secondary:hover {
+    background: #f7f7f7;
+  }
+
+  .dev-main {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
   }
 
   .pad-section {
     background: #fff;
-    border: 1px solid #e2ded5;
-    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
     overflow: hidden;
-    margin-bottom: 24px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   .context-injection-bar {
@@ -732,10 +765,10 @@
 
   .inspector-card {
     background: #fff;
-    border: 1px solid #e2ded5;
-    border-radius: 8px;
-    padding: 16px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   .card-title-row {
@@ -843,9 +876,10 @@
 
   .payload-section {
     background: #fff;
-    border: 1px solid #e2ded5;
-    border-radius: 8px;
-    padding: 16px;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     margin-bottom: 24px;
   }
 
@@ -873,9 +907,10 @@
 
   .response-section {
     background: #fff;
-    border: 1px solid #e2ded5;
-    border-radius: 8px;
-    padding: 16px;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   .loading-box {

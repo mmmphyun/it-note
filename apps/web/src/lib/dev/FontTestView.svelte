@@ -195,11 +195,11 @@
       <p class="desc">대필 속도(1~10)와 잘림 없는 스타일러스 볼펜 오버레이를 실측하며 최적의 필기감을 튜닝합니다.</p>
     </div>
     <div class="nav-links">
-      <a href="/?view=handwriting" class="btn secondary">필기 인식 분석 (?view=handwriting)</a>
-      <a href="/?view=dev" class="btn secondary">추론 파이프라인 검증 (?view=dev)</a>
-      <a href="/" class="btn secondary">캔버스 기본 (30s+60s)</a>
-      <a href="/?fast=1" class="btn secondary">캔버스 3초 배속 (?fast=1)</a>
-      <a href="/?fast=0" class="btn primary">캔버스 0초 즉시 모드 (?fast=0)</a>
+      <a href="/?view=font-test" class="btn primary">획순 튜닝 룸</a>
+      <a href="/?view=handwriting" class="btn secondary">필기 인식 분석</a>
+      <a href="/?view=dev" class="btn secondary">추론 파이프라인</a>
+      <a href="/" class="btn secondary">캔버스 기본</a>
+      <a href="/?fast=0" class="btn secondary">즉시 모드 (?fast=0)</a>
     </div>
   </header>
 
