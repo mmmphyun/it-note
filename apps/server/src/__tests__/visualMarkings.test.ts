@@ -15,10 +15,14 @@ describe('동그라미 선택 및 텍스트 피드백 자율 판별 엔진 검�
     const sentence = runHeuristicSystem2({
       decision: s1.decision,
       keywords: s1.keywords,
-      request: { rawTextInput: '국밥 -> 순대, (수육)' },
+      request: {
+        rawTextInput: '국밥 -> 순대, (수육)',
+        previousEvaporatedContext: '국밥',
+      },
     });
 
     expect(sentence).toContain('수육');
+    expect(sentence).toContain('국밥');
     expect(sentence).toContain('결정');
   });
 

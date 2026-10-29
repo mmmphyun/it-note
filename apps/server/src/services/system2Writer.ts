@@ -85,8 +85,14 @@ Context:
 - Active Hypothesis on Screen: ${request.activeHypothesisSentence ?? 'none'}
 
 Specific Chosen & Feedback Handling:
-- If Chosen Keywords exist (e.g. user circled an option among alternatives, such as choosing '수육' from '국밥 -> 순대, 수육'):
-  Formulate a direct question confirming that specific choice (e.g., "순대 대신 수육으로 결정하신 건가요?" or "수육으로 주문하시려는 건가요?").
+- CRITICAL MULTI-TURN CONTINUITY RULE:
+  If 'isContinuousWithPrevious' is true and 'Previous Evaporated Context' is present (e.g. "국밥"):
+  The user is developing a continuous thought from that previous topic.
+  You MUST combine the Previous Evaporated Context with the current choice/action into a single coherent sentence.
+  Example: Previous context "국밥" + Current choice "순대, (수육)" -> "국밥에 순대 대신 수육을 곁들여 주문하시려는 건가요?" or "국밥과 함께 드실 메뉴로 순대 대신 수육을 선택하신 건가요?"
+  NEVER omit or drop the Previous Evaporated Context when continuity is established!
+- If Chosen Keywords exist (e.g. user circled an option among alternatives, such as choosing '수육' from '순대, 수육'):
+  Formulate a direct question confirming that specific choice. Mention the alternatives being dropped if any.
 - If Feedback Intent is 'CONFIRM_ACCEPT' (user wrote 'yes', '응', 'ㅇㅇ', '맞아'):
   Generate a clear confirmation sentence indicating acceptance of the hypothesis.
 - If Feedback Intent is 'REJECT_CANCEL' (user wrote 'no', '아니', 'ㄴㄴ'):
@@ -136,8 +142,18 @@ export function runHeuristicSystem2(params: System2Params): string {
   // 0. 동그라미 선택 (Visual Selection) 최우선 반영
   if (chosen.length > 0) {
     const chosenText = chosen.join(', ');
+    const otherAlternatives = activeKeywords.filter((k) => !chosen.includes(k));
+    const altText = otherAlternatives.length > 0 ? `${otherAlternatives.join(', ')} 대신 ` : '';
+
+    if (isContinuous && prevContext) {
+      if (domain === 'ROUTINE_TASK') {
+        return `${prevContext}에 ${altText}${chosenText}(으)로 결정하여 주문하시려는 건가요?`;
+      }
+      return `${prevContext} 흐름에서 ${altText}${chosenText} 방안을 핵심으로 채택하려는 계획 맞나요?`;
+    }
+
     if (domain === 'ROUTINE_TASK') {
-      return `${chosenText}(으)로 최종 결정하여 주문하시려는 건가요?`;
+      return `${altText}${chosenText}(으)로 최종 결정하여 주문하시려는 건가요?`;
     }
     return `${chosenText} 방안을 핵심으로 채택하여 진행하려는 계획 맞나요?`;
   }

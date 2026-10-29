@@ -3,7 +3,7 @@
   import { TegakiEngine } from 'tegaki/core';
   import nanumFont from 'tegaki/fonts/nanum-pen-script';
   import { getTegakiTiming, createAirGlidePlugin } from '../canvas/stylusPenPlugin';
-  import { formatHandwrittenSentence, generateRandomTilt, estimateWordWidth } from '../canvas/canvasLifecycle';
+  import { formatHandwrittenSentence, generateRandomTilt } from '../canvas/canvasLifecycle';
 
   interface WordBBox {
     index: number;
@@ -30,34 +30,75 @@
   let tegakiEngine: TegakiEngine | null = null;
   let isWriting = $state(false);
 
-  function updateWordBoxes(processed: string) {
-    const lines = processed.split('\n');
+  function measureWordBoxesFromDom() {
+    if (!tegakiContainer) return;
+    const overlayEl = tegakiContainer.querySelector<HTMLElement>('[data-tegaki="overlay"]');
+    if (!overlayEl) return;
+
+    // text-stage의 회전을 일시 해제하여 순수 로컬 직교 좌표계로 정밀 측정
+    const stageEl = tegakiContainer.closest<HTMLElement>('.text-stage');
+    const originalTransform = stageEl?.style.transform ?? '';
+    if (stageEl) {
+      stageEl.style.transform = 'none';
+    }
+
+    const containerRect = tegakiContainer.getBoundingClientRect();
+    const textNode = overlayEl.firstChild;
     const boxes: WordBBox[] = [];
-    const lineHeight = fontSize * 1.55;
-    const spaceWidth = fontSize * 0.44;
-    let wordCounter = 0;
 
-    lines.forEach((lineText, lineIdx) => {
-      const words = lineText.split(/\s+/).filter(Boolean);
-      let currentX = 0;
-      const currentY = lineIdx * lineHeight;
+    if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+      const fullText = textNode.textContent ?? '';
+      const regex = /\S+/g;
+      let match: RegExpExecArray | null;
+      let index = 0;
 
-      words.forEach((word) => {
-        const width = estimateWordWidth(word, fontSize);
+      while ((match = regex.exec(fullText)) !== null) {
+        const word = match[0];
+        const start = match.index;
+        const end = start + word.length;
+
+        const range = document.createRange();
+        range.setStart(textNode, start);
+        range.setEnd(textNode, end);
+        const rect = range.getBoundingClientRect();
+
+        const preceding = fullText.slice(0, start);
+        const lineIndex = (preceding.match(/\n/g) || []).length;
+
+        // containerRect 기준 순수 로컬 픽셀
         boxes.push({
-          index: wordCounter++,
+          index: index++,
           word,
-          lineIndex: lineIdx,
-          x: Math.round(currentX),
-          y: Math.round(currentY),
-          width: Math.round(width),
-          height: Math.round(fontSize * 1.25),
+          lineIndex,
+          x: Math.round(rect.left - containerRect.left),
+          y: Math.round(rect.top - containerRect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
         });
-        currentX += width + spaceWidth;
-      });
-    });
+      }
+    }
 
-    wordBoxes = boxes;
+    // 원래 회전 transform 복원
+    if (stageEl) {
+      stageEl.style.transform = originalTransform;
+    }
+
+    if (boxes.length > 0) {
+      wordBoxes = boxes;
+    }
+  }
+
+  function updateWordBoxes() {
+    // 1차 DOM 실측 시도 (Tegaki overlay 렌더링된 요소 직접 측정)
+    measureWordBoxesFromDom();
+
+    // DOM 노드가 아직 안 잡힌 경우의 타이밍 비동기 재실측
+    requestAnimationFrame(() => {
+      measureWordBoxesFromDom();
+    });
+    setTimeout(() => {
+      measureWordBoxesFromDom();
+    }, 50);
   }
 
   const durationEstimates: Record<number, string> = {
@@ -86,7 +127,7 @@
 
     tiltDeg = generateRandomTilt();
     const processedText = useOrganicBreak ? formatHandwrittenSentence(testText) : testText;
-    updateWordBoxes(processedText);
+    updateWordBoxes();
     const timing = getTegakiTiming(speedLevel);
 
     // 공중 곡선 보간(Air Glide) 플러그인 (Direct GPU 조작)
@@ -113,12 +154,16 @@
         onComplete: () => {
           isWriting = false;
           if (penEl) penEl.style.display = 'none';
+          updateWordBoxes();
         },
       });
+      // 엔진 생성 직후 텍스트 오버레이 노드가 생성되었으므로 즉시 실측
+      updateWordBoxes();
     } catch {
       if (tegakiContainer) tegakiContainer.textContent = processedText;
       isWriting = false;
       if (penEl) penEl.style.display = 'none';
+      updateWordBoxes();
     }
   }
 
