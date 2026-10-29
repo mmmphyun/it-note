@@ -75,11 +75,22 @@ Context:
 - Inferred Domain: ${domain}
 - Inferred Action Task: ${actionTask}
 - Input Classification: ${decision.inputClassification?.selected ?? 'NEW_INDEPENDENT_MEMO'}
+- Feedback Intent: ${decision.feedbackIntent?.selected ?? 'NONE'}
 - Strikethrough Intent: ${decision.strikethroughIntent.selected}
 - Active Keywords: ${keywords.active.join(', ')}
 - Struck-out Keywords: ${keywords.struckOut.join(', ')}
+- Chosen (Circled) Keywords: ${keywords.chosen?.join(', ') ?? 'none'}
+- Emphasized (Underlined) Keywords: ${keywords.emphasized?.join(', ') ?? 'none'}
 - Previous Evaporated Context: ${request.previousEvaporatedContext ?? 'none'}
 - Active Hypothesis on Screen: ${request.activeHypothesisSentence ?? 'none'}
+
+Specific Chosen & Feedback Handling:
+- If Chosen Keywords exist (e.g. user circled an option among alternatives, such as choosing '수육' from '국밥 -> 순대, 수육'):
+  Formulate a direct question confirming that specific choice (e.g., "순대 대신 수육으로 결정하신 건가요?" or "수육으로 주문하시려는 건가요?").
+- If Feedback Intent is 'CONFIRM_ACCEPT' (user wrote 'yes', '응', 'ㅇㅇ', '맞아'):
+  Generate a clear confirmation sentence indicating acceptance of the hypothesis.
+- If Feedback Intent is 'REJECT_CANCEL' (user wrote 'no', '아니', 'ㄴㄴ'):
+  Pivot completely away from the rejected hypothesis.
 ${negativeConstraintPrompt}`;
 
   const res = await fetch(endpoint, {
@@ -116,12 +127,29 @@ export function runHeuristicSystem2(params: System2Params): string {
   const isContinuous = decision.isContinuousWithPrevious.value;
   const prevContext = request.previousEvaporatedContext;
   const inputClass = decision.inputClassification?.selected;
+  const feedbackIntent = decision.feedbackIntent?.selected;
   const activeHypothesis = request.activeHypothesisSentence;
   const domain = decision.domainRoute.selected;
   const actionTask = decision.actionTask?.selected ?? 'ITEM_ACCUMULATE';
+  const chosen = keywords.chosen ?? [];
 
-  // 1. AI 문장에 대한 답장/보충 설명 (FEEDBACK_REPLY)
+  // 0. 동그라미 선택 (Visual Selection) 최우선 반영
+  if (chosen.length > 0) {
+    const chosenText = chosen.join(', ');
+    if (domain === 'ROUTINE_TASK') {
+      return `${chosenText}(으)로 최종 결정하여 주문하시려는 건가요?`;
+    }
+    return `${chosenText} 방안을 핵심으로 채택하여 진행하려는 계획 맞나요?`;
+  }
+
+  // 1. AI 문장에 대한 피드백 반응 (FEEDBACK_REPLY & FeedbackIntent)
   if (inputClass === 'FEEDBACK_REPLY' && activeHypothesis) {
+    if (feedbackIntent === 'CONFIRM_ACCEPT') {
+      return '제시된 가설에 동의하신 내용을 확인하여 확정 노트로 흡수합니다.';
+    }
+    if (feedbackIntent === 'REJECT_CANCEL') {
+      return '이전 가설을 기각하고 다른 방향의 새로운 계획을 구상하시는 건가요?';
+    }
     if (activeKeywords.some((k) => k.toLowerCase().includes('redis') || k.toLowerCase().includes('db'))) {
       return '기존 아키텍처 구성에 Redis 캐시 레이어를 우선적으로 추가하려는 보충 피드백 맞나요?';
     }

@@ -12,6 +12,10 @@
   let currentStroke = $state<Stroke | null>(null);
   let isDrawing = $state(false);
 
+  // 맥락 연쇄 (Context Chaining) 파라미터
+  let previousEvaporatedContextInput = $state('국밥');
+  let activeHypothesisSentenceInput = $state('');
+
   // 크롭 및 메타데이터 결과
   let cropResult = $state<CroppedImageResult | null>(null);
   let totalPointsCount = $derived(strokes.reduce((acc, s) => acc + s.points.length, 0));
@@ -42,12 +46,26 @@
             bbox: cropResult.bbox,
             canvasSize: [canvasEl?.width ?? 900, canvasEl?.height ?? 500],
           },
+          previousEvaporatedContext: previousEvaporatedContextInput.trim() || null,
+          activeHypothesisSentence: activeHypothesisSentenceInput.trim() || null,
           userContext: {
             persona: { role: '개발자 / 필기 사용자' },
           },
         }
       : null
   );
+
+  function handleChainContext() {
+    if (!inferResponse) return;
+    previousEvaporatedContextInput = inferResponse.sentence;
+    showToast('추론 결과가 [직전 증발 맥락]으로 주입되었습니다.');
+  }
+
+  function handleClearContext() {
+    previousEvaporatedContextInput = '';
+    activeHypothesisSentenceInput = '';
+    showToast('맥락 입력이 초기화되었습니다.');
+  }
 
   function getSvgPathFromStroke(strokePoints: number[][]): string {
     if (strokePoints.length === 0) return '';
@@ -222,10 +240,36 @@
 
   <!-- 1. 스타일러스 드로잉 패드 -->
   <section class="pad-section">
+    <!-- 직전 증발 맥락 및 가설 주입 바 -->
+    <div class="context-injection-bar">
+      <div class="ctx-input-group">
+        <label for="prev-ctx">직전 증발 맥락 (Previous Evaporated):</label>
+        <input
+          id="prev-ctx"
+          type="text"
+          bind:value={previousEvaporatedContextInput}
+          placeholder="예: 국밥, 오늘 점심 메뉴 (비워두면 단독 필기)"
+        />
+      </div>
+      <div class="ctx-input-group">
+        <label for="active-hypo">화면 활성 가설 (Active Hypothesis):</label>
+        <input
+          id="active-hypo"
+          type="text"
+          bind:value={activeHypothesisSentenceInput}
+          placeholder="예: 오늘 점심은 순대국밥 어떠신가요? (비워두면 신규 메모)"
+        />
+      </div>
+      <div class="ctx-btn-group">
+        <button class="btn-ctx" onclick={() => (previousEvaporatedContextInput = '국밥')}>샘플: 국밥</button>
+        <button class="btn-ctx-clear" onclick={handleClearContext}>맥락 초기화</button>
+      </div>
+    </div>
+
     <div class="pad-toolbar">
       <div class="pad-info">
         <span class="badge">손글씨 캔버스</span>
-        <span class="sub">마우스 드래그 또는 스타일러스 펜으로 글씨나 기호(<code>-&gt;</code>, <code>취소선</code>)를 적어보세요.</span>
+        <span class="sub">마우스 드래그 또는 펜으로 글씨나 기호(<code>-&gt;</code>, <code>취소선</code>, <code>단어 동그라미</code>)를 적어보세요.</span>
       </div>
       <div class="pad-actions">
         <button class="btn-tool" onclick={handleClear} disabled={strokes.length === 0}>전체 지우기</button>
@@ -346,9 +390,14 @@
       <div class="card-title-row">
         <h3>4. Gemini 필기 인식 및 추론 결과 {#if inferDurationMs}({inferDurationMs}ms){/if}</h3>
         {#if inferResponse}
-          <button class="btn-copy-mini" onclick={() => copyText(JSON.stringify(inferResponse, null, 2), '추론 결과 JSON')}>
-            응답 JSON 복사
-          </button>
+          <div class="btn-group-row">
+            <button class="btn-ctx-chain" onclick={handleChainContext}>
+              이 결과를 [직전 증발 맥락]으로 주입
+            </button>
+            <button class="btn-copy-mini" onclick={() => copyText(JSON.stringify(inferResponse, null, 2), '추론 결과 JSON')}>
+              응답 JSON 복사
+            </button>
+          </div>
         {/if}
       </div>
 
@@ -374,6 +423,18 @@
               <span class="rk">인식된 취소 키워드:</span>
               <span class="rv select-text font-bold text-red">
                 [{inferResponse.extractedKeywords.struckOut.join(', ')}]
+              </span>
+            </div>
+            <div class="res-item">
+              <span class="rk">동그라미 선택 (Chosen):</span>
+              <span class="rv select-text font-bold text-purple">
+                [{(inferResponse.extractedKeywords.chosen ?? []).join(', ') || '없음'}]
+              </span>
+            </div>
+            <div class="res-item">
+              <span class="rk">피드백 의도 (Feedback):</span>
+              <span class="rv select-text font-bold text-green">
+                {inferResponse.jevDecision.feedbackIntent?.selected ?? 'NONE'}
               </span>
             </div>
             <div class="res-item">
@@ -473,6 +534,99 @@
     overflow: hidden;
     margin-bottom: 24px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+
+  .context-injection-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 18px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    flex-wrap: wrap;
+  }
+
+  .ctx-input-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 260px;
+  }
+
+  .ctx-input-group label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    white-space: nowrap;
+  }
+
+  .ctx-input-group input {
+    flex: 1;
+    padding: 5px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    font-size: 13px;
+    outline: none;
+    background: #fff;
+  }
+
+  .ctx-input-group input:focus {
+    border-color: #3b82f6;
+  }
+
+  .ctx-btn-group {
+    display: flex;
+    gap: 6px;
+  }
+
+  .btn-ctx {
+    background: #e2e8f0;
+    color: #334155;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .btn-ctx-clear {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .btn-ctx-chain {
+    background: #10b981;
+    color: #fff;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .btn-ctx-chain:hover {
+    background: #059669;
+  }
+
+  .btn-group-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .text-purple {
+    color: #7c3aed;
+  }
+
+  .text-green {
+    color: #059669;
   }
 
   .pad-toolbar {

@@ -3,19 +3,62 @@
   import { TegakiEngine } from 'tegaki/core';
   import nanumFont from 'tegaki/fonts/nanum-pen-script';
   import { getTegakiTiming, createAirGlidePlugin } from '../canvas/stylusPenPlugin';
-  import { formatHandwrittenSentence, generateRandomTilt } from '../canvas/canvasLifecycle';
+  import { formatHandwrittenSentence, generateRandomTilt, estimateWordWidth } from '../canvas/canvasLifecycle';
+
+  interface WordBBox {
+    index: number;
+    word: string;
+    lineIndex: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }
 
   let testText = $state('가상 DOM 오버헤드가 큰 React 대신 Svelte 5와 Hono로 모노레포를 구성하는 계획 맞나요?');
   let fontSize = $state(32);
   let speedLevel = $state(4); // 1 ~ 10
   let showPenTip = $state(true);
   let useOrganicBreak = $state(true); // 유기적 어절 줄바꿈 여부
+  let showWordBoxes = $state(true); // 단어별 렌더링 박스 시각화
+  let selectedWordIdx = $state<number | null>(null);
+  let wordBoxes = $state<WordBBox[]>([]);
   let tiltDeg = $state(-0.8); // 손글씨 미세 회전
 
   let tegakiContainer = $state<HTMLDivElement | null>(null);
   let penEl = $state<HTMLDivElement | null>(null);
   let tegakiEngine: TegakiEngine | null = null;
   let isWriting = $state(false);
+
+  function updateWordBoxes(processed: string) {
+    const lines = processed.split('\n');
+    const boxes: WordBBox[] = [];
+    const lineHeight = fontSize * 1.55;
+    const spaceWidth = fontSize * 0.44;
+    let wordCounter = 0;
+
+    lines.forEach((lineText, lineIdx) => {
+      const words = lineText.split(/\s+/).filter(Boolean);
+      let currentX = 0;
+      const currentY = lineIdx * lineHeight;
+
+      words.forEach((word) => {
+        const width = estimateWordWidth(word, fontSize);
+        boxes.push({
+          index: wordCounter++,
+          word,
+          lineIndex: lineIdx,
+          x: Math.round(currentX),
+          y: Math.round(currentY),
+          width: Math.round(width),
+          height: Math.round(fontSize * 1.25),
+        });
+        currentX += width + spaceWidth;
+      });
+    });
+
+    wordBoxes = boxes;
+  }
 
   const durationEstimates: Record<number, string> = {
     1: '22.4초 (극저속·획 하나하나 관찰)',
@@ -43,6 +86,7 @@
 
     tiltDeg = generateRandomTilt();
     const processedText = useOrganicBreak ? formatHandwrittenSentence(testText) : testText;
+    updateWordBoxes(processedText);
     const timing = getTegakiTiming(speedLevel);
 
     // 공중 곡선 보간(Air Glide) 플러그인 (Direct GPU 조작)
@@ -184,6 +228,16 @@
           </label>
         </div>
 
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              bind:checked={showWordBoxes}
+            />
+            <span class="chk-text highlight-chk">단어별 렌더링 박스 (Bbox) 시각화</span>
+          </label>
+        </div>
+
         <div class="btn-group">
           <button class="btn action-btn" onclick={startAnimation}>
             다시 재생
@@ -217,6 +271,31 @@
             style="font-size: {fontSize}px;"
           ></div>
 
+          {#if showWordBoxes}
+            <div class="word-boxes-overlay">
+              {#each wordBoxes as box}
+                <div
+                  class="word-bbox"
+                  class:selected={selectedWordIdx === box.index}
+                  style="
+                    left: {box.x}px;
+                    top: {box.y}px;
+                    width: {box.width}px;
+                    height: {box.height}px;
+                  "
+                  role="button"
+                  tabindex="0"
+                  onclick={() => (selectedWordIdx = selectedWordIdx === box.index ? null : box.index)}
+                  onkeydown={(e) => e.key === 'Enter' && (selectedWordIdx = selectedWordIdx === box.index ? null : box.index)}
+                  title="클릭하여 첨삭 교정 타깃 지정 (X: {box.x}, Y: {box.y}, W: {box.width}, H: {box.height})"
+                >
+                  <span class="word-badge">#{box.index}</span>
+                  <div class="word-underline-preview"></div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
           <div
             bind:this={penEl}
             class="stylus-pen-cursor"
@@ -244,6 +323,67 @@
         </p>
         <button class="btn small" onclick={startAnimation}>다시 쓰기</button>
       </div>
+    </section>
+
+    <!-- 단어별 렌더링 바운딩 박스 Inspector 표 -->
+    <section class="inspector-card">
+      <div class="inspector-header">
+        <div class="title-with-badge">
+          <h3>단어별 렌더링 박스 (Bbox) 메트릭 및 첨삭 교정 실측표</h3>
+          <span class="count-badge">{wordBoxes.length}개 어절</span>
+        </div>
+        <p class="inspector-desc">
+          AI 문장 위 특정 단어에 펜으로 밑줄을 긋거나 돼지꼬리를 뺐을 때, 클라이언트와 백엔드가 교정 대상 단어를 국소 치환하기 위한 기준 앵커 좌표입니다.
+        </p>
+      </div>
+
+      {#if wordBoxes.length > 0}
+        <div class="table-scroll">
+          <table class="bbox-table">
+            <thead>
+              <tr>
+                <th>순번</th>
+                <th>어절 텍스트</th>
+                <th>행 번호</th>
+                <th>X 상대좌표</th>
+                <th>Y 상대좌표</th>
+                <th>박스 너비</th>
+                <th>박스 높이</th>
+                <th>밑줄/첨삭 타깃 영역 [minX, minY, maxX, maxY]</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each wordBoxes as box}
+                <tr
+                  class:highlight-row={selectedWordIdx === box.index}
+                  onclick={() => (selectedWordIdx = selectedWordIdx === box.index ? null : box.index)}
+                >
+                  <td class="col-num">#{box.index}</td>
+                  <td class="col-word"><strong>{box.word}</strong></td>
+                  <td class="col-center">Line {box.lineIndex + 1}</td>
+                  <td class="col-code">{box.x}px</td>
+                  <td class="col-code">{box.y}px</td>
+                  <td class="col-code">{box.width}px</td>
+                  <td class="col-code">{box.height}px</td>
+                  <td class="col-code range-text">
+                    [{box.x}, {box.y}, {box.x + box.width}, {box.y + box.height}]
+                  </td>
+                  <td class="col-center">
+                    {#if selectedWordIdx === box.index}
+                      <span class="tag-active">첨삭 타깃 지정됨</span>
+                    {:else}
+                      <span class="tag-idle">대기</span>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else}
+        <p class="empty-text">측정된 어절 데이터가 없습니다. 문장을 입력하고 재생하십시오.</p>
+      {/if}
     </section>
   </main>
 </div>
@@ -557,5 +697,205 @@
     font-size: 12px;
     background: #f0f0f0;
     color: #333;
+  }
+
+  .highlight-chk {
+    font-weight: 700;
+    color: #4338ca;
+  }
+
+  /* 단어별 렌더링 박스 오버레이 */
+  .word-boxes-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .word-bbox {
+    position: absolute;
+    pointer-events: auto;
+    border: 1.5px dashed rgba(79, 70, 229, 0.6);
+    background: rgba(79, 70, 229, 0.06);
+    border-radius: 4px;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: all 0.15s ease;
+  }
+
+  .word-bbox:hover {
+    border: 1.5px solid #4338ca;
+    background: rgba(79, 70, 229, 0.14);
+    box-shadow: 0 2px 6px rgba(79, 70, 229, 0.2);
+  }
+
+  .word-bbox.selected {
+    border: 2px solid #dc2626 !important;
+    background: rgba(220, 38, 38, 0.15) !important;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.25);
+  }
+
+  .word-badge {
+    position: absolute;
+    top: -16px;
+    left: -1px;
+    background: #4338ca;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: -apple-system, sans-serif;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .word-bbox.selected .word-badge {
+    background: #dc2626;
+  }
+
+  .word-underline-preview {
+    position: absolute;
+    bottom: 2px;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: rgba(79, 70, 229, 0.35);
+  }
+
+  .word-bbox.selected .word-underline-preview {
+    height: 3px;
+    background: #dc2626;
+  }
+
+  /* 바운딩 박스 Inspector 표 */
+  .inspector-card {
+    margin-top: 24px;
+    background: #fff;
+    border-radius: 10px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    border: 1px solid #e0e0e0;
+  }
+
+  .inspector-header {
+    margin-bottom: 16px;
+  }
+
+  .title-with-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .title-with-badge h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  .count-badge {
+    background: #eef2ff;
+    color: #4338ca;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .inspector-desc {
+    font-size: 12px;
+    color: #666;
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  .table-scroll {
+    overflow-x: auto;
+  }
+
+  .bbox-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    text-align: left;
+  }
+
+  .bbox-table th {
+    background: #f8fafc;
+    color: #475569;
+    padding: 8px 12px;
+    border-bottom: 2px solid #e2e8f0;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .bbox-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .bbox-table tr:hover {
+    background: #f8fafc;
+    cursor: pointer;
+  }
+
+  .highlight-row {
+    background: #fef2f2 !important;
+  }
+
+  .col-num {
+    font-weight: 700;
+    color: #4338ca;
+    width: 45px;
+  }
+
+  .col-word {
+    font-size: 13px;
+    color: #0f172a;
+  }
+
+  .col-center {
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .col-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #334155;
+  }
+
+  .range-text {
+    font-weight: 600;
+    color: #0284c7;
+  }
+
+  .tag-active {
+    display: inline-block;
+    background: #fee2e2;
+    color: #b91c1c;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 11px;
+  }
+
+  .tag-idle {
+    display: inline-block;
+    background: #f1f5f9;
+    color: #64748b;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+
+  .empty-text {
+    color: #888;
+    font-size: 13px;
+    padding: 16px 0;
+    text-align: center;
   }
 </style>

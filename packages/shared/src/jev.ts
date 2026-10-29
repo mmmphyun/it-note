@@ -28,6 +28,7 @@ export type StrikethroughIntent = 'THOUGHT_PIVOT' | 'TYPO_CORRECTION' | 'NONE';
 export type VisualStructure = 'CONTRAST_ARROW' | 'MIND_MAP' | 'LIST' | 'ISOLATED';
 export type DomainRoute = 'SIDE_PROJECT_SPARK' | 'DEVSECOPS_STUDY' | 'ROUTINE_TASK' | 'GENERAL_IDEA';
 export type InputClassification = 'FEEDBACK_REPLY' | 'NEW_INDEPENDENT_MEMO' | 'STRIKE_THROUGH';
+export type FeedbackIntent = 'CONFIRM_ACCEPT' | 'REJECT_CANCEL' | 'CORRECTION_MODIFY' | 'NONE';
 export type ActionTask =
   | 'SELECTION_PIVOT'
   | 'ALTERNATIVE_COMPARE'
@@ -40,6 +41,7 @@ export type ActionTask =
 export interface JevDecision {
   isContinuousWithPrevious: Noul;
   inputClassification?: Choice<InputClassification>;
+  feedbackIntent?: Choice<FeedbackIntent>;
   strikethroughIntent: Choice<StrikethroughIntent>;
   visualStructure: Choice<VisualStructure>;
   domainRoute: Choice<DomainRoute>;
@@ -50,6 +52,8 @@ export interface JevDecision {
 export interface ExtractedKeywords {
   active: string[];
   struckOut: string[];
+  chosen?: string[];
+  emphasized?: string[];
 }
 
 export interface JevDecisionResult {

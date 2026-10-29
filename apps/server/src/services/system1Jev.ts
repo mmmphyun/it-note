@@ -110,6 +110,19 @@ Crucial Persona Policy:
 - Developers write everyday notes too (e.g. coffee choice, lunch menu, daily errands, groceries, casual ideas).
 - NEVER force everyday personal notes into tech/work domains. Casual life notes MUST be classified as ROUTINE_TASK or GENERAL_IDEA.
 
+Visual Markings & Gesture Rules:
+- CIRCLE_ENCLOSURE: When a word or phrase is circled (enclosed in a round or oval boundary), the user has CHOSEN/SELECTED that specific option among alternatives (e.g., in "국밥 -> 순대, 수육" with '수육' circled, '수육' is the chosen option). Put it in 'chosen' under extractedKeywords and set actionTask to 'SELECTION_PIVOT'.
+- UNDERLINE: When a line is drawn under a word, the user is EMPHASIZING that item. Put it in 'emphasized' under extractedKeywords.
+- CHECKMARK: When a checkmark (v or 체크) is drawn next to or over an item, it is confirmed/chosen. Put it in 'chosen' under extractedKeywords.
+
+Screen Location Independent Feedback Intent:
+- The user may write anywhere on the screen (not necessarily right next to the AI sentence).
+- If an active hypothesis sentence is present on screen (${request.activeHypothesisSentence ?? 'null'}), analyze whether the user's new input is responding to that hypothesis:
+  - Affirmative response ("yes", "응", "ㅇㅇ", "맞아", "좋아", "ㅇ", "그렇게 해줘"): inputClassification = 'FEEDBACK_REPLY', feedbackIntent = 'CONFIRM_ACCEPT'.
+  - Negative rejection ("no", "아니", "ㄴㄴ", "틀렸어", "ㄴ", "그거 말고"): inputClassification = 'FEEDBACK_REPLY', feedbackIntent = 'REJECT_CANCEL'.
+  - Correction / Word replacement: inputClassification = 'FEEDBACK_REPLY', feedbackIntent = 'CORRECTION_MODIFY'.
+  - Completely new thought: inputClassification = 'NEW_INDEPENDENT_MEMO', feedbackIntent = 'NONE'.
+
 Action Tasks (Determine the user's primary human action):
 - SELECTION_PIVOT: Dropping a previous option and adopting an alternative (e.g. ~~초코라떼~~ 얼그레이, ~~React~~ Svelte 5).
 - ALTERNATIVE_COMPARE: Deliberating between multiple options (e.g. 국밥, 칼국수 / 모노레포 vs 멀티레포).
@@ -158,6 +171,15 @@ Action Tasks (Determine the user's primary human action):
               properties: {
                 type: { type: 'STRING', enum: ['choice'] },
                 selected: { type: 'STRING', enum: ['FEEDBACK_REPLY', 'NEW_INDEPENDENT_MEMO', 'STRIKE_THROUGH'] },
+                confidence: { type: 'NUMBER' },
+              },
+              required: ['type', 'selected', 'confidence'],
+            },
+            feedbackIntent: {
+              type: 'OBJECT',
+              properties: {
+                type: { type: 'STRING', enum: ['choice'] },
+                selected: { type: 'STRING', enum: ['CONFIRM_ACCEPT', 'REJECT_CANCEL', 'CORRECTION_MODIFY', 'NONE'] },
                 confidence: { type: 'NUMBER' },
               },
               required: ['type', 'selected', 'confidence'],
@@ -225,6 +247,8 @@ Action Tasks (Determine the user's primary human action):
               properties: {
                 active: { type: 'ARRAY', items: { type: 'STRING' } },
                 struckOut: { type: 'ARRAY', items: { type: 'STRING' } },
+                chosen: { type: 'ARRAY', items: { type: 'STRING' } },
+                emphasized: { type: 'ARRAY', items: { type: 'STRING' } },
               },
               required: ['active', 'struckOut'],
             },
@@ -257,13 +281,19 @@ Action Tasks (Determine the user's primary human action):
     decision: {
       isContinuousWithPrevious: parsed.isContinuousWithPrevious,
       inputClassification: parsed.inputClassification,
+      feedbackIntent: parsed.feedbackIntent,
       strikethroughIntent: parsed.strikethroughIntent,
       visualStructure: parsed.visualStructure,
       domainRoute: parsed.domainRoute,
       actionTask: parsed.actionTask,
       marginBox: parsed.marginBox,
     },
-    keywords: parsed.extractedKeywords ?? { active: [], struckOut: [] },
+    keywords: {
+      active: parsed.extractedKeywords?.active ?? [],
+      struckOut: parsed.extractedKeywords?.struckOut ?? [],
+      chosen: parsed.extractedKeywords?.chosen ?? [],
+      emphasized: parsed.extractedKeywords?.emphasized ?? [],
+    },
   };
 }
 
@@ -276,15 +306,23 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
   const activeHypothesis = request.activeHypothesisSentence;
   const previousEvaporated = request.previousEvaporatedContext;
 
-  // 1. "새 단어" vs "AI 문장에 대한 답장" 구분 인식
+  // 1. "새 단어" vs "AI 문장에 대한 답장" 및 피드백 의도 자율 판별
   let inputClass: InputClassification = 'NEW_INDEPENDENT_MEMO';
   let inputConfidence = 0.85;
+  let feedbackIntent: import('@itnote/shared').FeedbackIntent = 'NONE';
 
   if (activeHypothesis) {
-    // 가설 문장이 현재 화면에 떠 있는 상태에서 입력된 경우
-    // 가설 문장과 인접하거나 보충 성격의 입력으로 판별
     inputClass = 'FEEDBACK_REPLY';
     inputConfidence = 0.89;
+
+    const rawLower = (request.rawTextInput ?? '').trim().toLowerCase();
+    if (/^(응|ㅇㅇ|yes|y|맞아|좋아|ㅇ|그래|확정|수락)/.test(rawLower)) {
+      feedbackIntent = 'CONFIRM_ACCEPT';
+    } else if (/^(아니|ㄴㄴ|no|n|틀렸어|ㄴ|취소|기각)/.test(rawLower)) {
+      feedbackIntent = 'REJECT_CANCEL';
+    } else if (/대신|말고|수정/.test(rawLower)) {
+      feedbackIntent = 'CORRECTION_MODIFY';
+    }
   }
 
   // 2. 증발 후 연속성 (Noul 시간차 추론)
@@ -296,14 +334,29 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
     continuityProb = 0.84;
   }
 
-  // 3. 취소선 및 구조 판정
+  // 3. 취소선 및 구조 판정, 마킹(선택/강조) 추출
   let strikethroughIntent: StrikethroughIntent = 'NONE';
   let visualStructure: VisualStructure = 'ISOLATED';
   const activeKeywords: string[] = ['Svelte 5', 'Hono'];
   const struckOutKeywords: string[] = [];
+  const chosenKeywords: string[] = [];
+  const emphasizedKeywords: string[] = [];
 
   if (request.rawTextInput) {
     const raw = request.rawTextInput.trim();
+
+    // 동그라미 선택 표기 추출 (예: (수육), [수육])
+    const circleMatches = Array.from(raw.matchAll(/[\(\[]([^\)\]]+)[\)\]]/g));
+    for (const cm of circleMatches) {
+      chosenKeywords.push(cm[1].trim());
+    }
+
+    // 밑줄 강조 표기 추출 (예: _항목_)
+    const underMatches = Array.from(raw.matchAll(/_([^_]+)_/g));
+    for (const um of underMatches) {
+      emphasizedKeywords.push(um[1].trim());
+    }
+
     if (raw.includes('->') || raw.includes('→')) {
       visualStructure = 'CONTRAST_ARROW';
       const parts = raw.split(/->|→/).map((s) => s.trim());
@@ -360,7 +413,9 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
 
   // 5. 7대 행동 태스크 (ActionTask) 도출
   let actionTask: ActionTask = 'ITEM_ACCUMULATE';
-  if (strikethroughIntent === 'THOUGHT_PIVOT' || struckOutKeywords.length > 0) {
+  if (chosenKeywords.length > 0) {
+    actionTask = 'SELECTION_PIVOT';
+  } else if (strikethroughIntent === 'THOUGHT_PIVOT' || struckOutKeywords.length > 0) {
     if (struckOutKeywords.some((s) => /\d|원|시|분|port/i.test(s))) {
       actionTask = 'PARAM_ADJUST';
     } else {
@@ -390,6 +445,11 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
         selected: inputClass,
         confidence: inputConfidence,
       },
+      feedbackIntent: {
+        type: 'choice',
+        selected: feedbackIntent,
+        confidence: 0.9,
+      },
       strikethroughIntent: {
         type: 'choice',
         selected: strikethroughIntent,
@@ -418,6 +478,8 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
     keywords: {
       active: activeKeywords,
       struckOut: struckOutKeywords,
+      chosen: chosenKeywords,
+      emphasized: emphasizedKeywords,
     },
   };
 }
