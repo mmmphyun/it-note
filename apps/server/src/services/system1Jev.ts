@@ -39,7 +39,8 @@ export async function runSystem1Jev(request: InferRequestBody): Promise<System1O
   if (geminiApiKey) {
     try {
       return await callGeminiStructuredJev(request, geminiApiKey);
-    } catch {
+    } catch (err) {
+      console.error('[System 1 Jev Error]', err instanceof Error ? err.message : err);
       // Gemini 실패 시 Heuristic Fallback
     }
   }
@@ -89,36 +90,37 @@ async function callGeminiStructuredJev(
   request: InferRequestBody,
   apiKey: string
 ): Promise<System1Output> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
 
-  const prompt = `You are System 1 (Jev Decision Engine). Analyze the user's stylus note image and metadata.
+  const prompt = `You are System 1 (Jev Decision Engine). Analyze the user's note input and metadata.
 Determine the decision primitives (Noul, Choice, Box) and extract active/struck-out keywords.
 
-Metadata:
+Input:
+- Raw Text Input: ${request.rawTextInput ?? 'None (Handwriting image provided)'}
 - Previous Evaporated Context: ${request.previousEvaporatedContext ?? 'null'}
 - Active Hypothesis on Screen: ${request.activeHypothesisSentence ?? 'null'}
 - Rejected Hypotheses (marked X): ${JSON.stringify(request.rejectedHypotheses ?? [])}
 - User Persona: ${JSON.stringify(request.userContext?.persona ?? {})}
 - Evolving Topics: ${JSON.stringify(request.userContext?.evolvingTopics ?? [])}`;
 
+  const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [
+    { text: prompt },
+  ];
+
+  if (request.croppedImageBase64 && request.croppedImageBase64.startsWith('data:image/')) {
+    parts.push({
+      inlineData: {
+        mimeType: 'image/png',
+        data: request.croppedImageBase64.replace(/^data:image\/[a-z]+;base64,/, ''),
+      },
+    });
+  }
+
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: prompt },
-            {
-              inlineData: {
-                mimeType: 'image/png',
-                data: request.croppedImageBase64.replace(/^data:image\/[a-z]+;base64,/, ''),
-              },
-            },
-          ],
-        },
-      ],
+      contents: [{ role: 'user', parts }],
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: {
@@ -259,6 +261,31 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
   let visualStructure: VisualStructure = 'ISOLATED';
   const activeKeywords: string[] = ['Svelte 5', 'Hono'];
   const struckOutKeywords: string[] = [];
+
+  if (request.rawTextInput) {
+    const raw = request.rawTextInput.trim();
+    if (raw.includes('->') || raw.includes('→')) {
+      visualStructure = 'CONTRAST_ARROW';
+      const parts = raw.split(/->|→/).map((s) => s.trim());
+      activeKeywords.length = 0;
+      activeKeywords.push(...parts.filter(Boolean));
+    } else if (raw.includes('~~') || raw.includes(' 취소 ')) {
+      strikethroughIntent = 'THOUGHT_PIVOT';
+      visualStructure = 'CONTRAST_ARROW';
+      const match = raw.match(/~~([^~]+)~~(.*)/);
+      if (match) {
+        struckOutKeywords.push(match[1].trim());
+        const remaining = match[2].trim();
+        if (remaining) {
+          activeKeywords.length = 0;
+          activeKeywords.push(remaining);
+        }
+      }
+    } else {
+      activeKeywords.length = 0;
+      activeKeywords.push(...raw.split(/[\s,]+/).filter(Boolean));
+    }
+  }
 
   // 4. 여백 바운딩박스 계산 (필기 우측 또는 하단)
   const marginMinX = maxX + 36;

@@ -63,7 +63,8 @@ export interface InferUserContext {
 }
 
 export interface InferRequestBody {
-  croppedImageBase64: string;
+  croppedImageBase64?: string;
+  rawTextInput?: string;
   strokeMetadata?: StrokeMetadata;
   previousEvaporatedContext?: string | null;
   activeHypothesisSentence?: string | null;

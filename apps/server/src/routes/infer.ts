@@ -14,8 +14,8 @@ inferRoute.post('/', async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400);
   }
 
-  if (!body.croppedImageBase64) {
-    return c.json({ error: 'croppedImageBase64 is required' }, 400);
+  if (!body.croppedImageBase64 && !body.rawTextInput) {
+    return c.json({ error: 'croppedImageBase64 or rawTextInput is required' }, 400);
   }
 
   // 1. System 1 (Jev/OpenJev 의사결정)

@@ -4,14 +4,17 @@
   import PaperCanvas from './lib/canvas/PaperCanvas.svelte';
   import DeskView from './lib/archive/DeskView.svelte';
   import FontTestView from './lib/dev/FontTestView.svelte';
+  import PipelineDevView from './lib/dev/PipelineDevView.svelte';
 
-  let currentView = $state<'canvas' | 'desk' | 'font-test'>('canvas');
+  let currentView = $state<'canvas' | 'desk' | 'font-test' | 'dev'>('canvas');
   let confirmedNotes = $state<ConfirmedNote[]>([]);
 
   function checkRoute() {
     const path = window.location.pathname;
     const search = new URLSearchParams(window.location.search);
-    if (path === '/font-test' || search.get('view') === 'font-test') {
+    if (path === '/dev' || search.get('view') === 'dev') {
+      currentView = 'dev';
+    } else if (path === '/font-test' || search.get('view') === 'font-test') {
       currentView = 'font-test';
     } else if (path === '/desk' || search.get('view') === 'desk') {
       currentView = 'desk';
@@ -57,6 +60,8 @@
     />
   {:else if currentView === 'font-test'}
     <FontTestView />
+  {:else if currentView === 'dev'}
+    <PipelineDevView />
   {/if}
 </main>
 

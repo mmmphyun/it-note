@@ -27,7 +27,8 @@ export async function runSystem2Writer(params: System2Params): Promise<string> {
   if (geminiApiKey) {
     try {
       return await callGeminiWriter(params, geminiApiKey);
-    } catch {
+    } catch (err) {
+      console.error('[System 2 Writer Error]', err instanceof Error ? err.message : err);
       // Gemini 호출 실패 시 규칙 기반 템플릿으로 안전 폴백
     }
   }
@@ -39,7 +40,7 @@ export async function runSystem2Writer(params: System2Params): Promise<string> {
  * Gemini 기반 단일 문장 생성기
  */
 async function callGeminiWriter(params: System2Params, apiKey: string): Promise<string> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
 
   const { decision, keywords, request } = params;
   const rejected = request.rejectedHypotheses ?? [];
@@ -54,6 +55,7 @@ Generate EXACTLY ONE complete, polite Korean inference question (single sentence
 Do NOT list bullet points or alternatives.
 
 Context:
+- User Raw Input: ${request.rawTextInput ?? 'none'}
 - Decision Domain: ${decision.domainRoute.selected}
 - Input Classification: ${decision.inputClassification?.selected ?? 'NEW_INDEPENDENT_MEMO'}
 - Strikethrough Intent: ${decision.strikethroughIntent.selected}
