@@ -1,6 +1,10 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { inferRoute } from './routes/infer';
+import { authRoute } from './routes/auth';
+import { notesRoute } from './routes/notes';
+import { billingRoute } from './routes/billing';
 import { createSlidingWindowRateLimiter } from './middleware/rateLimiter';
 
 // Node.js 기본 내장 환경변수 로더 (로컬 환경 지원)
@@ -72,5 +76,23 @@ app.get('/api/health', (c) => {
   });
 });
 
-// 4. 추론 라우트 마운트
+// 4. 라우트 마운트
+app.route('/api/auth', authRoute);
+app.route('/api/notes', notesRoute);
+app.route('/api/billing', billingRoute);
 app.route('/api/infer', inferRoute);
+
+// 5. 단일 컨테이너(Docker) 정적 SPA 서빙 지원
+if (!process.env.K_SERVICE && !process.env.FUNCTION_TARGET) {
+  // 정적 자산 서빙 (루트 기준 apps/web/dist)
+  app.use(
+    '/*',
+    serveStatic({
+      root: './apps/web/dist',
+      rewriteRequestPath: (path) => (path === '/' ? '/index.html' : path),
+    })
+  );
+
+  // SPA fallback (HTML5 history API)
+  app.get('*', serveStatic({ root: './apps/web/dist', path: 'index.html' }));
+}
