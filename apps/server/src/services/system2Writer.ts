@@ -3,8 +3,10 @@ import type {
   ExtractedKeywords,
   InferRequestBody,
 } from '@itnote/shared';
+import type { GoogleGenAI } from '@google/genai';
+import { getGeminiClient } from './geminiClient';
 
-// ponytail: single hypothesis synthesizer with strict negative constraints
+// ponytail: single hypothesis synthesizer with official @google/genai SDK
 
 export interface System2Params {
   decision: JevDecision;
@@ -22,11 +24,11 @@ export async function runSystem2Writer(params: System2Params): Promise<string> {
     return runHeuristicSystem2(params);
   }
 
-  const geminiApiKey = process.env.GEMINI_API_KEY;
+  const ai = getGeminiClient();
 
-  if (geminiApiKey) {
+  if (ai) {
     try {
-      return await callGeminiWriter(params, geminiApiKey);
+      return await callGeminiWriter(params, ai);
     } catch (err) {
       console.error('[System 2 Writer Error]', err instanceof Error ? err.message : err);
       // Gemini 호출 실패 시 규칙 기반 템플릿으로 안전 폴백
@@ -37,11 +39,9 @@ export async function runSystem2Writer(params: System2Params): Promise<string> {
 }
 
 /**
- * Gemini 기반 단일 문장 생성기
+ * Gemini 기반 단일 문장 생성기 (공식 @google/genai SDK)
  */
-async function callGeminiWriter(params: System2Params, apiKey: string): Promise<string> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
-
+async function callGeminiWriter(params: System2Params, ai: GoogleGenAI): Promise<string> {
   const { decision, keywords, request } = params;
   const rejected = request.rejectedHypotheses ?? [];
   const domain = decision.domainRoute.selected;
@@ -116,23 +116,16 @@ Specific Chosen & Feedback Handling:
   Pivot completely away from the rejected hypothesis.
 ${negativeConstraintPrompt}`;
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: systemInstruction }] }],
-      generationConfig: {
-        maxOutputTokens: 500,
-        temperature: 0.3,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    }),
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-lite',
+    contents: systemInstruction,
+    config: {
+      maxOutputTokens: 500,
+      temperature: 0.3,
+    },
   });
 
-  if (!res.ok) throw new Error(`Gemini writer failed with status ${res.status}`);
-
-  const json = await res.json();
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  const text = response.text?.trim();
   if (!text) throw new Error('Empty text from Gemini writer');
 
   // 개행을 공백으로 합치고 양쪽 따옴표 정리

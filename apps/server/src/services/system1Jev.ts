@@ -8,8 +8,10 @@ import type {
   InputClassification,
   ActionTask,
 } from '@itnote/shared';
+import type { GoogleGenAI } from '@google/genai';
+import { getGeminiClient } from './geminiClient';
 
-// ponytail: stdlib fetch with structured json, no heavy ai wrapper sdk required
+// ponytail: official @google/genai SDK with structured output
 
 export interface System1Output {
   decision: JevDecision;
@@ -27,7 +29,7 @@ export async function runSystem1Jev(request: InferRequestBody): Promise<System1O
 
   const jevApiKey = process.env.JEV_API_KEY;
   const jevEndpoint = process.env.JEV_ENDPOINT_URL || 'https://api.jev.ai/v1/systemone';
-  const geminiApiKey = process.env.GEMINI_API_KEY;
+  const ai = getGeminiClient();
 
   if (jevApiKey && jevEndpoint) {
     try {
@@ -37,9 +39,9 @@ export async function runSystem1Jev(request: InferRequestBody): Promise<System1O
     }
   }
 
-  if (geminiApiKey) {
+  if (ai) {
     try {
-      return await callGeminiStructuredJev(request, geminiApiKey);
+      return await callGeminiStructuredJev(request, ai);
     } catch (err) {
       console.error('[System 1 Jev Error]', err instanceof Error ? err.message : err);
       // Gemini 실패 시 Heuristic Fallback
@@ -85,13 +87,12 @@ async function callJevEndpoint(
 }
 
 /**
- * 2. Gemini Structured Output 어댑터 (Jev 스키마 100% 동기화)
+ * 2. Gemini Structured Output 어댑터 (공식 @google/genai SDK)
  */
 async function callGeminiStructuredJev(
   request: InferRequestBody,
-  apiKey: string
+  ai: GoogleGenAI
 ): Promise<System1Output> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
 
   const prompt = `You are System 1 (Jev Decision Engine). Analyze the user's note input and metadata.
 Determine the decision primitives (Noul, Choice, Box) and extract active/struck-out keywords.
@@ -132,12 +133,10 @@ Action Tasks (Determine the user's primary human action):
 - CAUSE_DIAGNOSE: Diagnosing root causes or troubleshooting hypotheses (e.g. OOM: 누수 의심).
 - RECORD_CONFIRM: Plain recording of a finalized fact or completed expense.`;
 
-  const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [
-    { text: prompt },
-  ];
+  const contents: any[] = [{ text: prompt }];
 
   if (request.croppedImageBase64 && request.croppedImageBase64.startsWith('data:image/')) {
-    parts.push({
+    contents.push({
       inlineData: {
         mimeType: 'image/png',
         data: request.croppedImageBase64.replace(/^data:image\/[a-z]+;base64,/, ''),
@@ -145,16 +144,13 @@ Action Tasks (Determine the user's primary human action):
     });
   }
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        maxOutputTokens: 1000,
-        thinkingConfig: { thinkingBudget: 0 },
-        responseSchema: {
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-lite',
+    contents,
+    config: {
+      responseMimeType: 'application/json',
+      maxOutputTokens: 1000,
+      responseSchema: {
           type: 'OBJECT',
           properties: {
             isContinuousWithPrevious: {
@@ -265,15 +261,9 @@ Action Tasks (Determine the user's primary human action):
           ],
         },
       },
-    }),
-  });
+    });
 
-  if (!res.ok) {
-    throw new Error(`Gemini API failed with status ${res.status}`);
-  }
-
-  const json = await res.json();
-  const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  const rawText = response.text;
   if (!rawText) throw new Error('Empty response from Gemini');
 
   const parsed = JSON.parse(rawText);
