@@ -9,6 +9,11 @@ export interface PersonalPreferences {
   lifestyleHabits?: string[];    // 취미 / 일상 관심사 (예: 커피, 운동, 독서)
   thinkingStyle?: 'PRAGMATIC' | 'SYSTEMATIC'; // 실용적 구현 vs 체계적 설계
   sentenceTone?: 'CONCISE' | 'DETAILED';      // 날카로운 단문 vs 완결형 복문
+  calibrationSignature?: {
+    strokeCount: number;
+    avgSpeed: number;
+    agreedLength: 'SHORT' | 'LONG'; // '동의함' vs '동의합니다'
+  };
 }
 
 export interface UserProfile {

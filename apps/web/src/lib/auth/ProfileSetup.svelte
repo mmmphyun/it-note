@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { UserProfile, RoutineSlot, PersonalPreferences } from '@itnote/shared';
   import RoutineMatrix from './RoutineMatrix.svelte';
 
@@ -10,20 +11,35 @@
 
   let { initialProfile, initialRoutine, onComplete }: Props = $props();
 
+  // 현재 스텝 (1 ~ 7)
+  let currentStep = $state(1);
+  const TOTAL_STEPS = 7;
+
+  // 1-3: 필수 데이터
   let role = $state('');
   let interestsString = $state('');
   let routineSlots = $state<RoutineSlot[]>([]);
-  let isSaving = $state(false);
-  let errorMessage = $state<string | null>(null);
 
-  // 선택적 취향/습관 설정 상태
-  let isOptionalOpen = $state(false);
+  // 4-6: 선택 데이터
   let subInterestsString = $state('');
   let lifestyleHabitsString = $state('');
   let thinkingStyle = $state<'PRAGMATIC' | 'SYSTEMATIC'>('PRAGMATIC');
   let sentenceTone = $state<'CONCISE' | 'DETAILED'>('CONCISE');
 
-  $effect(() => {
+  // 7: 필기 서약 캘리브레이션 상태
+  let signatureCanvas: HTMLCanvasElement | null = $state(null);
+  let isDrawing = false;
+  let strokeCount = $state(0);
+  let strokePoints: Array<{ x: number; y: number; t: number }> = [];
+  let calibrationSpeed = $state(0);
+  let hasDrawnSignature = $state(false);
+
+  // 건너뛰기 확인 모달
+  let isSkipModalOpen = $state(false);
+  let isSaving = $state(false);
+  let errorMessage = $state<string | null>(null);
+
+  onMount(() => {
     role = initialProfile.role || '';
     interestsString = (initialProfile.interests || []).join(', ');
     routineSlots = initialRoutine || [];
@@ -33,16 +49,106 @@
       lifestyleHabitsString = (initialProfile.preferences.lifestyleHabits || []).join(', ');
       thinkingStyle = initialProfile.preferences.thinkingStyle || 'PRAGMATIC';
       sentenceTone = initialProfile.preferences.sentenceTone || 'CONCISE';
-      isOptionalOpen = true;
     }
   });
+
+  // 캔버스 필기 이벤트 핸들러
+  function setupSignatureCanvas(node: HTMLCanvasElement) {
+    signatureCanvas = node;
+    const ctx = node.getContext('2d');
+    if (!ctx) return;
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#2B2B2B';
+  }
+
+  function handleSigPointerDown(e: PointerEvent) {
+    if (!signatureCanvas) return;
+    const rect = signatureCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    isDrawing = true;
+    strokeCount++;
+    hasDrawnSignature = true;
+
+    strokePoints.push({ x, y, t: performance.now() });
+
+    const ctx = signatureCanvas.getContext('2d');
+    if (ctx) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    }
+  }
+
+  function handleSigPointerMove(e: PointerEvent) {
+    if (!isDrawing || !signatureCanvas) return;
+    const rect = signatureCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    strokePoints.push({ x, y, t: performance.now() });
+
+    const ctx = signatureCanvas.getContext('2d');
+    if (ctx) {
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+  }
+
+  function handleSigPointerUp() {
+    isDrawing = false;
+    // 필기 속도(px/ms) 캘리브레이션 산출
+    if (strokePoints.length > 2) {
+      let totalDist = 0;
+      for (let i = 1; i < strokePoints.length; i++) {
+        const dx = strokePoints[i].x - strokePoints[i - 1].x;
+        const dy = strokePoints[i].y - strokePoints[i - 1].y;
+        totalDist += Math.sqrt(dx * dx + dy * dy);
+      }
+      const totalTime = strokePoints[strokePoints.length - 1].t - strokePoints[0].t;
+      if (totalTime > 0) {
+        calibrationSpeed = Math.round((totalDist / totalTime) * 100) / 100;
+      }
+    }
+  }
+
+  function clearSignature() {
+    if (!signatureCanvas) return;
+    const ctx = signatureCanvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, signatureCanvas.width, signatureCanvas.height);
+    }
+    strokeCount = 0;
+    strokePoints = [];
+    hasDrawnSignature = false;
+    calibrationSpeed = 0;
+  }
 
   function handleRoutineChange(newSlots: RoutineSlot[]) {
     routineSlots = newSlots;
   }
 
-  async function handleSubmit(e: SubmitEvent) {
-    e.preventDefault();
+  function nextStep() {
+    if (currentStep < TOTAL_STEPS) {
+      currentStep++;
+    }
+  }
+
+  function prevStep() {
+    if (currentStep > 1) {
+      currentStep--;
+    }
+  }
+
+  function confirmSkipAll() {
+    isSkipModalOpen = false;
+    // 선택 단계를 건너뛰고 바로 7단계(필기 서약 캘리브레이션)로 이동
+    currentStep = 7;
+  }
+
+  async function handleFinalSubmit() {
     isSaving = true;
     errorMessage = null;
 
@@ -66,10 +172,15 @@
       lifestyleHabits: parsedLifestyle,
       thinkingStyle,
       sentenceTone,
+      calibrationSignature: {
+        strokeCount,
+        avgSpeed: calibrationSpeed,
+        agreedLength: strokeCount > 5 ? 'LONG' : 'SHORT',
+      },
     };
 
     try {
-      // 1. 프로필 업데이트 (기본 직무 + 선택적 취향)
+      // 1. 프로필 업데이트
       const resProf = await fetch('/api/auth/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -99,354 +210,774 @@
   }
 </script>
 
-<div class="setup-container">
-  <div class="setup-card">
-    <header class="setup-header">
-      <h2>맥락 프로필 및 주간 루틴 온보딩</h2>
-      <p>AI가 당신의 직무와 현재 작업 시간대를 이해하여 가장 적합한 단일 문장을 추론합니다.</p>
+<div class="onboarding-root">
+  <div class="onboarding-container">
+    <!-- 상단 헤더 & 프로그레스 바 -->
+    <header class="progress-header">
+      <div class="progress-info">
+        <span class="step-badge">
+          Step {currentStep} of {TOTAL_STEPS}
+          {#if currentStep <= 3}
+            <span class="badge-req">필수</span>
+          {:else if currentStep <= 6}
+            <span class="badge-opt">선택</span>
+          {:else}
+            <span class="badge-final">최종 동의</span>
+          {/if}
+        </span>
+
+        {#if currentStep >= 4 && currentStep <= 6}
+          <button
+            type="button"
+            class="skip-all-btn"
+            onclick={() => (isSkipModalOpen = true)}
+          >
+            선택 항목 모두 건너뛰기 ≫
+          </button>
+        {/if}
+      </div>
+
+      <div class="progress-bar-track">
+        <div
+          class="progress-bar-fill"
+          style="width: {(currentStep / TOTAL_STEPS) * 100}%;"
+        ></div>
+      </div>
     </header>
 
     {#if errorMessage}
       <div class="error-banner">{errorMessage}</div>
     {/if}
 
-    <form class="setup-form" onsubmit={handleSubmit}>
-      <!-- 필수 항목 1: 주 직무 -->
-      <div class="form-group">
-        <label for="role">현재 주 직무 / 목표 (필수)</label>
-        <input
-          id="role"
-          type="text"
-          placeholder="예: Java Spring 백엔드 개발자, DevSecOps 취준생, 풀스택 엔지니어"
-          bind:value={role}
-          required
-        />
-      </div>
+    <!-- 본문 질문 카드 (단일 질문 집중형) -->
+    <main class="question-card">
+      {#if currentStep === 1}
+        <!-- Step 1 (필수): 주 직무 / 목표 -->
+        <div class="step-content">
+          <span class="question-number">Q1.</span>
+          <h2 class="question-title">현재 주 직무나 목표가 무엇인가요?</h2>
+          <p class="question-desc">
+            가장 주력으로 삼고 계신 엔지니어링 역할이나 직무 목표를 적어주세요.
+          </p>
+          <div class="input-area">
+            <input
+              type="text"
+              class="large-input"
+              placeholder="예: Java Spring 백엔드 개발자, DevSecOps 취준생"
+              bind:value={role}
+              onkeydown={(e) => e.key === 'Enter' && role.trim() && nextStep()}
+            />
+          </div>
+          <div class="nav-row">
+            <div></div>
+            <button
+              type="button"
+              class="btn-primary"
+              disabled={!role.trim()}
+              onclick={nextStep}
+            >
+              다음으로 (Enter) →
+            </button>
+          </div>
+        </div>
 
-      <!-- 필수 항목 2: 주요 연구/관심 기술 -->
-      <div class="form-group">
-        <label for="interests">주요 기술 관심사 (쉼표 구분)</label>
-        <input
-          id="interests"
-          type="text"
-          placeholder="예: Java, Spring Boot, MySQL, 도커, 쿠버네티스"
-          bind:value={interestsString}
-        />
-      </div>
+      {:else if currentStep === 2}
+        <!-- Step 2 (필수): 주력 전문 기술 관심사 -->
+        <div class="step-content">
+          <span class="question-number">Q2.</span>
+          <h2 class="question-title">주로 연구하거나 사용하는 기술 스택은 무엇인가요?</h2>
+          <p class="question-desc">
+            주 직무에서 다루는 주요 언어, 프레임워크, 도구를 쉼표로 구분해 적어주세요.
+          </p>
+          <div class="input-area">
+            <input
+              type="text"
+              class="large-input"
+              placeholder="예: Java, Spring Boot, MySQL, 도커, 쿠버네티스"
+              bind:value={interestsString}
+              onkeydown={(e) => e.key === 'Enter' && interestsString.trim() && nextStep()}
+            />
+          </div>
+          <div class="nav-row">
+            <button type="button" class="btn-ghost" onclick={prevStep}>← 이전</button>
+            <button
+              type="button"
+              class="btn-primary"
+              disabled={!interestsString.trim()}
+              onclick={nextStep}
+            >
+              다음으로 →
+            </button>
+          </div>
+        </div>
 
-      <!-- 선택 사항: 작업 습관 & 취향 프로필 아코디언 -->
-      <div class="optional-section">
-        <button
-          type="button"
-          class="accordion-trigger"
-          onclick={() => (isOptionalOpen = !isOptionalOpen)}
-        >
-          <span class="trigger-title">
-            <span class="badge-opt">선택 사항</span>
-            개인 작업 습관 & 서브 취향 프로필
-          </span>
-          <span class="arrow">{isOptionalOpen ? '▲ 닫기' : '▼ 펼치기 (언제든 건너뛰기 가능)'}</span>
-        </button>
+      {:else if currentStep === 3}
+        <!-- Step 3 (필수): 주간 집중 작업 루틴 시간표 -->
+        <div class="step-content wide">
+          <span class="question-number">Q3.</span>
+          <h2 class="question-title">평소 주간 집중 작업 루틴을 지정해 주세요.</h2>
+          <p class="question-desc">
+            현재 요일과 시각을 대조하여 AI가 작업 모드(개발, 기획, 학습)에 맞춰 가설 우선순위를 최적화합니다.
+          </p>
+          <div class="matrix-box">
+            <RoutineMatrix {routineSlots} onChange={handleRoutineChange} />
+          </div>
+          <div class="nav-row">
+            <button type="button" class="btn-ghost" onclick={prevStep}>← 이전</button>
+            <button type="button" class="btn-primary" onclick={nextStep}>
+              필수 설정 완료하고 선택 질문으로 →
+            </button>
+          </div>
+        </div>
 
-        {#if isOptionalOpen}
-          <div class="optional-body">
-            <p class="opt-desc">
-              * 비워두셔도 실제 캔버스 필기와 O/X 제스처를 통해 AI가 당신의 취향을 스스로 역산합니다.
-            </p>
-
-            <div class="form-group">
-              <label for="sub-interests">사이드 프로젝트 / 서브 기술 스택 (선택)</label>
-              <input
-                id="sub-interests"
-                type="text"
-                placeholder="예: React, Next.js, PyTorch/AI 파인튜닝, Flutter, Rust"
-                bind:value={subInterestsString}
-              />
-              <span class="field-hint">주 직무와 무관한 실험적 기술이라도 독자적인 사이드 프로젝트로 인식합니다.</span>
-            </div>
-
-            <div class="form-group">
-              <label for="lifestyle">개인 취미 & 일상 관심사 (선택)</label>
-              <input
-                id="lifestyle"
-                type="text"
-                placeholder="예: 에스프레소/원두, 클라이밍, 러닝, 독서, 요리"
-                bind:value={lifestyleHabitsString}
-              />
-              <span class="field-hint">일상 단어 메모 시 개발 맥락에 억지로 끼워 맞추지 않고 일상 맥락으로 즉시 분기합니다.</span>
-            </div>
-
-            <div class="radio-grid">
-              <div class="radio-card">
-                <span class="card-label">선호 사고 / 작업 스타일</span>
-                <label class="radio-option">
-                  <input
-                    type="radio"
-                    name="thinkingStyle"
-                    value="PRAGMATIC"
-                    checked={thinkingStyle === 'PRAGMATIC'}
-                    onchange={() => (thinkingStyle = 'PRAGMATIC')}
-                  />
-                  <span>실용주의적 빠른 구현 (Ponytail / 프로토타입)</span>
-                </label>
-                <label class="radio-option">
-                  <input
-                    type="radio"
-                    name="thinkingStyle"
-                    value="SYSTEMATIC"
-                    checked={thinkingStyle === 'SYSTEMATIC'}
-                    onchange={() => (thinkingStyle = 'SYSTEMATIC')}
-                  />
-                  <span>체계적 구조와 안정성 (아키텍처 / 보안)</span>
-                </label>
-              </div>
-
-              <div class="radio-card">
-                <span class="card-label">AI 추론 문장 선호 문체</span>
-                <label class="radio-option">
-                  <input
-                    type="radio"
-                    name="sentenceTone"
-                    value="CONCISE"
-                    checked={sentenceTone === 'CONCISE'}
-                    onchange={() => (sentenceTone = 'CONCISE')}
-                  />
-                  <span>핵심만 찌르는 날카로운 단문 (20자 이내)</span>
-                </label>
-                <label class="radio-option">
-                  <input
-                    type="radio"
-                    name="sentenceTone"
-                    value="DETAILED"
-                    checked={sentenceTone === 'DETAILED'}
-                    onchange={() => (sentenceTone = 'DETAILED')}
-                  />
-                  <span>맥락과 이유를 짚어주는 완결형 복문</span>
-                </label>
-              </div>
+      {:else if currentStep === 4}
+        <!-- Step 4 (선택): 서브 기술 / 사이드 프로젝트 -->
+        <div class="step-content">
+          <div class="opt-indicator">
+            <span class="badge-opt">선택 질문</span>
+            <span>건너뛰어도 무방합니다.</span>
+          </div>
+          <span class="question-number">Q4.</span>
+          <h2 class="question-title">주 직무 외에 관심 있는 사이드 프로젝트 기술이 있나요?</h2>
+          <p class="question-desc">
+            백엔드 개발자라도 프론트엔드(React)나 AI 파인튜닝(PyTorch)을 할 수 있습니다. 억지로 주 직무에 엮지 않고 독립된 맥락으로 추론합니다.
+          </p>
+          <div class="input-area">
+            <input
+              type="text"
+              class="large-input"
+              placeholder="예: React, Next.js, PyTorch/LoRA, Flutter, Rust (쉼표 구분)"
+              bind:value={subInterestsString}
+              onkeydown={(e) => e.key === 'Enter' && nextStep()}
+            />
+          </div>
+          <div class="nav-row">
+            <button type="button" class="btn-ghost" onclick={prevStep}>← 이전</button>
+            <div class="right-buttons">
+              <button type="button" class="btn-skip" onclick={nextStep}>이 질문 건너뛰기</button>
+              <button type="button" class="btn-primary" onclick={nextStep}>저장하고 다음 →</button>
             </div>
           </div>
-        {/if}
-      </div>
+        </div>
 
-      <!-- 필수 항목 3: 주간 집중 작업 루틴 시간표 -->
-      <div class="form-group">
-        <span class="group-label">주간 집중 작업 루틴 시간표 (4색 브러시 드래그)</span>
-        <RoutineMatrix {routineSlots} onChange={handleRoutineChange} />
-      </div>
+      {:else if currentStep === 5}
+        <!-- Step 5 (선택): 개인 취미 & 일상 관심사 -->
+        <div class="step-content">
+          <div class="opt-indicator">
+            <span class="badge-opt">선택 질문</span>
+            <span>건너뛰어도 무방합니다.</span>
+          </div>
+          <span class="question-number">Q5.</span>
+          <h2 class="question-title">평소 즐기는 취미나 일상적인 관심사가 있나요?</h2>
+          <p class="question-desc">
+            캔버스에 적힌 '원두'나 '클라이밍'을 직무와 억지로 결합하지 않고, 순수한 개인 라이프스타일 맥락으로 분기하기 위함입니다.
+          </p>
+          <div class="input-area">
+            <input
+              type="text"
+              class="large-input"
+              placeholder="예: 에스프레소/원두, 클라이밍, 러닝, 독서, 요리 (쉼표 구분)"
+              bind:value={lifestyleHabitsString}
+              onkeydown={(e) => e.key === 'Enter' && nextStep()}
+            />
+          </div>
+          <div class="nav-row">
+            <button type="button" class="btn-ghost" onclick={prevStep}>← 이전</button>
+            <div class="right-buttons">
+              <button type="button" class="btn-skip" onclick={nextStep}>이 질문 건너뛰기</button>
+              <button type="button" class="btn-primary" onclick={nextStep}>저장하고 다음 →</button>
+            </div>
+          </div>
+        </div>
 
-      <div class="button-row">
-        <button type="submit" class="submit-btn" disabled={isSaving}>
-          {isSaving ? '저장 중...' : '설정 완료하고 백지 캔버스 시작'}
-        </button>
-      </div>
-    </form>
+      {:else if currentStep === 6}
+        <!-- Step 6 (선택): 사고 스타일 및 선호 문체 -->
+        <div class="step-content">
+          <div class="opt-indicator">
+            <span class="badge-opt">선택 질문</span>
+            <span>건너뛰어도 무방합니다.</span>
+          </div>
+          <span class="question-number">Q6.</span>
+          <h2 class="question-title">선호하는 사고 스타일과 AI 문체는 무엇인가요?</h2>
+          <p class="question-desc">
+            가설을 빠르게 실험할지, 구조를 탄탄히 할지, 그리고 답변의 길이를 당신의 성향에 맞춥니다.
+          </p>
+
+          <div class="choices-grid">
+            <div class="choice-group">
+              <span class="group-title">작업 성향</span>
+              <button
+                type="button"
+                class="choice-card"
+                class:selected={thinkingStyle === 'PRAGMATIC'}
+                onclick={() => (thinkingStyle = 'PRAGMATIC')}
+              >
+                <strong>실용주의적 빠른 실험 (Ponytail)</strong>
+                <p>최소한의 코드로 동작을 검증하고 프로토타이핑하는 것을 선호합니다.</p>
+              </button>
+              <button
+                type="button"
+                class="choice-card"
+                class:selected={thinkingStyle === 'SYSTEMATIC'}
+                onclick={() => (thinkingStyle = 'SYSTEMATIC')}
+              >
+                <strong>체계적 구조와 안정성 (Architectural)</strong>
+                <p>설계 패턴, 보안, 예외 처리 및 견고한 인프라를 우선시합니다.</p>
+              </button>
+            </div>
+
+            <div class="choice-group">
+              <span class="group-title">AI 제안 문체</span>
+              <button
+                type="button"
+                class="choice-card"
+                class:selected={sentenceTone === 'CONCISE'}
+                onclick={() => (sentenceTone = 'CONCISE')}
+              >
+                <strong>날카로운 단문형 (20자 이내)</strong>
+                <p>불필요한 수식어 없이 핵심 판단만 묻는 단결한 문장을 선호합니다.</p>
+              </button>
+              <button
+                type="button"
+                class="choice-card"
+                class:selected={sentenceTone === 'DETAILED'}
+                onclick={() => (sentenceTone = 'DETAILED')}
+              >
+                <strong>맥락 중심 완결형 복문</strong>
+                <p>배경 이유와 트레이드오프를 짚어주는 포괄적인 문장을 선호합니다.</p>
+              </button>
+            </div>
+          </div>
+
+          <div class="nav-row">
+            <button type="button" class="btn-ghost" onclick={prevStep}>← 이전</button>
+            <div class="right-buttons">
+              <button type="button" class="btn-skip" onclick={nextStep}>이 질문 건너뛰기</button>
+              <button type="button" class="btn-primary" onclick={nextStep}>최종 단계로 →</button>
+            </div>
+          </div>
+        </div>
+
+      {:else if currentStep === 7}
+        <!-- Step 7 (최종 피날레): 필기 데이터 수집 동의 & 서약 캘리브레이션 -->
+        <div class="step-content">
+          <span class="question-number">Final.</span>
+          <h2 class="question-title">필기 텔레메트리 수집 동의 및 자필 서약</h2>
+          <p class="question-desc">
+            잇적은 사용자의 고유한 <strong>필압, 획 속도, 펜 각도(120Hz)</strong>를 실시간 분석하여 인지적 집중도를 추론합니다.
+            개인정보 및 필기 데이터 활용에 동의하신다면 아래 종이에 직접 <strong>'동의함'</strong> 또는 <strong>'동의합니다'</strong>를 적어주세요.
+          </p>
+
+          <div class="signature-canvas-wrapper">
+            <canvas
+              use:setupSignatureCanvas
+              class="signature-canvas"
+              width="600"
+              height="200"
+              onpointerdown={handleSigPointerDown}
+              onpointermove={handleSigPointerMove}
+              onpointerup={handleSigPointerUp}
+              onpointerleave={handleSigPointerUp}
+            ></canvas>
+
+            <div class="canvas-watermark-guide">
+              {#if !hasDrawnSignature}
+                <span class="guide-text">여기에 스타일러스 펜 또는 마우스로 '동의함' 또는 '동의합니다'를 적어주세요</span>
+              {/if}
+            </div>
+
+            <div class="canvas-footer-bar">
+              <span class="calib-stats">
+                {#if hasDrawnSignature}
+                  획수: <strong>{strokeCount}획</strong> · 속도 계수: <strong>{calibrationSpeed} px/ms</strong> (초기 캘리브레이션 완료)
+                {:else}
+                  * 자필 글씨체를 바탕으로 사용자님의 초기 필기 속도와 문체 성향이 캘리브레이션됩니다.
+                {/if}
+              </span>
+              <button type="button" class="btn-clear" onclick={clearSignature}>다시 쓰기</button>
+            </div>
+          </div>
+
+          <div class="nav-row">
+            <button type="button" class="btn-ghost" onclick={prevStep}>← 이전</button>
+            <button
+              type="button"
+              class="btn-complete"
+              disabled={!hasDrawnSignature || isSaving}
+              onclick={handleFinalSubmit}
+            >
+              {isSaving ? '설정 저장 중...' : '동의 완료하고 잇적 시작'}
+            </button>
+          </div>
+        </div>
+      {/if}
+    </main>
   </div>
+
+  <!-- 선택 항목 한 번에 건너뛰기 설득 모달 -->
+  {#if isSkipModalOpen}
+    <div
+      class="modal-backdrop"
+      onclick={() => (isSkipModalOpen = false)}
+      onkeydown={(e) => e.key === 'Escape' && (isSkipModalOpen = false)}
+      role="presentation"
+    >
+      <div
+        class="modal-box"
+        onclick={(e) => e.stopPropagation()}
+        onkeydown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        tabindex="-1"
+      >
+        <h3>선택 설문을 건너뛰시겠습니까?</h3>
+        <p class="modal-explanation">
+          사이드 프로젝트(서브 기술)와 취미를 미리 등록해 두시면, AI가 새로운 단어(예: React, 원두)를 적었을 때
+          <strong>주 직무에 억지로 종속시키지 않고 독립적인 아이디어로 정확히 분류</strong>할 수 있습니다.
+        </p>
+        <p class="modal-sub">
+          * 지금 건너뛰셔도 실제 캔버스 필기와 O/X 제스처를 통해 AI가 스스로 학습합니다.
+        </p>
+        <div class="modal-actions">
+          <button
+            type="button"
+            class="btn-ghost-modal"
+            onclick={() => (isSkipModalOpen = false)}
+          >
+            계속 입력하기
+          </button>
+          <button
+            type="button"
+            class="btn-confirm-skip"
+            onclick={confirmSkipAll}
+          >
+            건너뛰고 최종 동의로 이동
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
-  .setup-container {
+  .onboarding-root {
     width: 100vw;
     height: 100vh;
-    overflow-y: auto;
     background: #FAF8F5;
     display: flex;
+    align-items: center;
     justify-content: center;
-    padding: 40px 20px;
-    box-sizing: border-box;
+    overflow-y: auto;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     color: #2B2B2B;
+    padding: 24px;
+    box-sizing: border-box;
   }
 
-  .setup-card {
+  .onboarding-container {
+    width: 100%;
+    max-width: 820px;
     background: #FFFFFF;
     border: 1px solid rgba(0, 0, 0, 0.08);
-    border-radius: 16px;
-    padding: 36px 40px;
-    width: 100%;
-    max-width: 800px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    border-radius: 20px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
-  .setup-header {
-    margin-bottom: 28px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-    padding-bottom: 16px;
+  .progress-header {
+    padding: 24px 36px 16px 36px;
+    background: #FAFAFA;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   }
 
-  .setup-header h2 {
-    font-size: 22px;
+  .progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .step-badge {
+    font-size: 13px;
     font-weight: 700;
-    margin: 0 0 6px 0;
+    color: #555;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
-  .setup-header p {
-    font-size: 14px;
-    color: #666;
-    margin: 0;
+  .badge-req {
+    background: #E53935;
+    color: #FFF;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+  }
+  .badge-opt {
+    background: #385E72;
+    color: #FFF;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+  }
+  .badge-final {
+    background: #2B2B2B;
+    color: #FFF;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+  }
+
+  .skip-all-btn {
+    background: none;
+    border: none;
+    color: #777;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .skip-all-btn:hover {
+    color: #385E72;
+    text-decoration: underline;
+  }
+
+  .progress-bar-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.06);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: #385E72;
+    transition: width 0.3s ease;
   }
 
   .error-banner {
     background: #FEE;
     color: #C00;
-    padding: 10px 14px;
-    border-radius: 8px;
+    padding: 10px 20px;
     font-size: 13px;
-    margin-bottom: 20px;
   }
 
-  .setup-form {
+  .question-card {
+    padding: 40px 48px;
+    min-height: 440px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    justify-content: space-between;
   }
 
-  .form-group {
+  .step-content {
     display: flex;
     flex-direction: column;
+    height: 100%;
+  }
+
+  .opt-indicator {
+    display: flex;
+    align-items: center;
     gap: 8px;
-  }
-
-  .form-group label,
-  .form-group .group-label {
-    font-size: 14px;
-    font-weight: 600;
-    color: #333;
-  }
-
-  .field-hint {
     font-size: 12px;
     color: #777;
-    margin-top: -2px;
+    margin-bottom: 8px;
   }
 
-  .form-group input {
-    padding: 10px 14px;
-    border-radius: 8px;
-    border: 1px solid rgba(0, 0, 0, 0.15);
-    font-size: 14px;
-    background: #FAFAFA;
+  .question-number {
+    font-size: 15px;
+    font-weight: 800;
+    color: #385E72;
+    margin-bottom: 4px;
+    letter-spacing: 0.05em;
   }
-  .form-group input:focus {
+
+  .question-title {
+    font-size: 24px;
+    font-weight: 800;
+    margin: 0 0 10px 0;
+    line-height: 1.35;
+    color: #1A1A1A;
+  }
+
+  .question-desc {
+    font-size: 14px;
+    color: #666;
+    margin: 0 0 28px 0;
+    line-height: 1.5;
+  }
+
+  .input-area {
+    margin-bottom: auto;
+  }
+
+  .large-input {
+    width: 100%;
+    padding: 16px 20px;
+    font-size: 18px;
+    border: 2px solid rgba(0, 0, 0, 0.12);
+    border-radius: 12px;
+    background: #FAFAFA;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+  }
+  .large-input:focus {
     outline: none;
     border-color: #385E72;
     background: #FFF;
+    box-shadow: 0 0 0 4px rgba(56, 94, 114, 0.1);
   }
 
-  .optional-section {
-    border: 1px solid rgba(56, 94, 114, 0.2);
-    border-radius: 10px;
-    background: #F8F9FA;
-    overflow: hidden;
+  .matrix-box {
+    margin-bottom: 24px;
   }
 
-  .accordion-trigger {
-    width: 100%;
+  .choices-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    margin-bottom: 28px;
+  }
+
+  .choice-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .group-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #444;
+  }
+
+  .choice-card {
+    text-align: left;
     padding: 14px 18px;
-    background: transparent;
-    border: none;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: #FAFAFA;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .choice-card:hover {
+    background: #F0F4F7;
+  }
+  .choice-card.selected {
+    border-color: #385E72;
+    background: #EEF4F7;
+    box-shadow: 0 0 0 2px rgba(56, 94, 114, 0.2);
+  }
+  .choice-card strong {
+    font-size: 14px;
+    color: #1A1A1A;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .choice-card p {
+    font-size: 12px;
+    color: #666;
+    margin: 0;
+  }
+
+  /* 캔버스 서약 캘리브레이션 */
+  .signature-canvas-wrapper {
+    position: relative;
+    border: 2px dashed rgba(56, 94, 114, 0.3);
+    border-radius: 12px;
+    background: #FAF8F5;
+    margin-bottom: 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .signature-canvas {
+    width: 100%;
+    height: 180px;
+    touch-action: none;
+    cursor: crosshair;
+  }
+
+  .canvas-watermark-guide {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    color: #AAA;
+    font-size: 14px;
+    text-align: center;
+  }
+
+  .canvas-footer-bar {
+    width: 100%;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    cursor: pointer;
-    font-family: inherit;
+    padding: 10px 16px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    background: #FFF;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    box-sizing: border-box;
   }
 
-  .trigger-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 14px;
-    font-weight: 700;
-    color: #2D4C5D;
-  }
-
-  .badge-opt {
-    background: #385E72;
-    color: #FFF;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 12px;
-  }
-
-  .arrow {
+  .calib-stats {
     font-size: 12px;
     color: #666;
-    font-weight: 500;
   }
 
-  .optional-body {
-    padding: 18px;
-    border-top: 1px solid rgba(0, 0, 0, 0.06);
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    background: #FFF;
-  }
-
-  .opt-desc {
+  .btn-clear {
+    background: none;
+    border: none;
     font-size: 12px;
-    color: #777;
-    margin: 0;
-    line-height: 1.4;
+    color: #999;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .btn-clear:hover {
+    color: #E53935;
   }
 
-  .radio-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-    margin-top: 6px;
-  }
-
-  .radio-card {
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    border-radius: 8px;
-    padding: 14px;
-    background: #FAFAFA;
+  /* 네비게이션 버튼 바 */
+  .nav-row {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
   }
 
-  .card-label {
-    font-size: 13px;
-    font-weight: 700;
-    color: #333;
-    margin-bottom: 4px;
-  }
-
-  .radio-option {
+  .right-buttons {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: #444;
-    cursor: pointer;
+    gap: 12px;
   }
 
-  .button-row {
-    margin-top: 12px;
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .submit-btn {
+  .btn-primary {
     background: #2B2B2B;
     color: #FAF8F5;
+    border: none;
     padding: 12px 24px;
     border-radius: 8px;
     font-size: 14px;
-    font-weight: 600;
-    border: none;
+    font-weight: 700;
     cursor: pointer;
     transition: background 0.15s ease;
   }
-  .submit-btn:hover:not(:disabled) {
+  .btn-primary:hover:not(:disabled) {
     background: #111;
   }
-  .submit-btn:disabled {
-    opacity: 0.6;
+  .btn-primary:disabled {
+    opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  .btn-complete {
+    background: #385E72;
+    color: #FFF;
+    border: none;
+    padding: 14px 28px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .btn-complete:hover:not(:disabled) {
+    background: #2D4C5D;
+  }
+  .btn-complete:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn-ghost {
+    background: none;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    color: #666;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .btn-skip {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  /* 설득 모달 */
+  .modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal-box {
+    background: #FFF;
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 460px;
+    width: 90%;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  }
+  .modal-box h3 {
+    margin: 0 0 12px 0;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .modal-explanation {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #444;
+    margin: 0 0 10px 0;
+  }
+  .modal-sub {
+    font-size: 12px;
+    color: #777;
+    margin: 0 0 24px 0;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+  .btn-ghost-modal {
+    background: #F0EDE8;
+    border: none;
+    color: #555;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-confirm-skip {
+    background: #385E72;
+    border: none;
+    color: #FFF;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
   }
 </style>
