@@ -48,26 +48,38 @@
       currentView = 'font-test';
       return;
     }
-    if (path === '/desk' || search.get('view') === 'desk') {
-      currentView = 'desk';
-      return;
-    }
-    if (path === '/login' || search.get('view') === 'login') {
-      currentView = 'login';
-      return;
-    }
 
-    // 기본 진입점: 세션 확인 후 세션 미존재 시 login, 프로필 미완료 시 setup, 완료 시 0초만에 canvas 직행
+    // 기본 진입점: 세션 확인
     if (!currentSession) {
       await checkSession();
     }
 
+    // 1. 미인증 상태: 로그인 뷰로 강제 및 URL 동기화
     if (!currentSession) {
       currentView = 'login';
-    } else if (!currentSession.user.role) {
+      if (path !== '/login' && path !== '/') {
+        window.history.replaceState({}, '', '/login');
+      }
+      return;
+    }
+
+    // 2. 프로필 미완료 상태: 온보딩(setup) 뷰로 강제 및 URL 동기화
+    if (!currentSession.user.role) {
       currentView = 'setup';
+      if (path !== '/setup' && path !== '/') {
+        window.history.replaceState({}, '', '/setup');
+      }
+      return;
+    }
+
+    // 3. 인증 및 프로필 완료 상태
+    if (path === '/desk' || search.get('view') === 'desk') {
+      currentView = 'desk';
     } else {
       currentView = 'canvas';
+      if (path === '/login' || path === '/setup') {
+        window.history.replaceState({}, '', '/');
+      }
     }
   }
 
@@ -85,8 +97,14 @@
     currentSession = session;
     if (!session.user.role) {
       currentView = 'setup';
+      if (window.location.pathname !== '/setup') {
+        window.history.replaceState({}, '', '/setup');
+      }
     } else {
       currentView = 'canvas';
+      if (window.location.pathname !== '/') {
+        window.history.replaceState({}, '', '/');
+      }
     }
   }
 
@@ -99,10 +117,16 @@
     }
     userRoutine = updatedRoutine;
     currentView = 'canvas';
+    if (window.location.pathname !== '/') {
+      window.history.replaceState({}, '', '/');
+    }
   }
 
   function handleOpenDesk() {
     currentView = 'desk';
+    if (window.location.pathname !== '/desk') {
+      window.history.pushState({}, '', '/desk');
+    }
   }
 
   function handleBackToCanvas() {
@@ -115,6 +139,9 @@
   function handleLogout() {
     currentSession = null;
     currentView = 'login';
+    if (window.location.pathname !== '/login') {
+      window.history.replaceState({}, '', '/login');
+    }
   }
 
   async function handleConfirmedNote(note: ConfirmedNote) {
