@@ -26,3 +26,33 @@ export interface EvolvingContext {
   confirmedPreferences: string[];
   recentConfirmedNotes: ConfirmedNote[];
 }
+
+export interface AuthSession {
+  sessionId: string;
+  user: UserProfile;
+  expiresAt: number;
+}
+
+export type BillingPlan = 'free' | 'pro';
+
+export interface BillingStatus {
+  plan: BillingPlan;
+  isActive: boolean;
+  orderId?: string;
+  paidAt?: number;
+  amount?: number;
+}
+
+export interface PaymentConfirmRequest {
+  paymentKey: string;
+  orderId: string;
+  amount: number;
+}
+
+export interface PaymentConfirmResponse {
+  success: boolean;
+  orderId: string;
+  plan: BillingPlan;
+  paidAt: number;
+  amount: number;
+}
