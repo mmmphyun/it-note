@@ -309,6 +309,14 @@ authRoute.put('/profile', async (c) => {
   if (stored) {
     if (body.role) stored.profile.role = String(body.role);
     if (Array.isArray(body.interests)) stored.profile.interests = body.interests.map(String);
+    if (body.preferences && typeof body.preferences === 'object') {
+      stored.profile.preferences = {
+        subInterests: Array.isArray(body.preferences.subInterests) ? body.preferences.subInterests.map(String) : [],
+        lifestyleHabits: Array.isArray(body.preferences.lifestyleHabits) ? body.preferences.lifestyleHabits.map(String) : [],
+        thinkingStyle: body.preferences.thinkingStyle === 'SYSTEMATIC' ? 'SYSTEMATIC' : 'PRAGMATIC',
+        sentenceTone: body.preferences.sentenceTone === 'DETAILED' ? 'DETAILED' : 'CONCISE',
+      };
+    }
     session.user = { ...stored.profile };
   }
 

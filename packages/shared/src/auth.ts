@@ -4,12 +4,20 @@ import type { ConfirmedNote } from './note';
  * 사용자 프로필, 7일 루틴 슬롯 및 휘발되지 않는 진화 맥락 타입 정의
  */
 
+export interface PersonalPreferences {
+  subInterests?: string[];       // 사이드 프로젝트 / 서브 관심 기술 (예: React, PyTorch)
+  lifestyleHabits?: string[];    // 취미 / 일상 관심사 (예: 커피, 운동, 독서)
+  thinkingStyle?: 'PRAGMATIC' | 'SYSTEMATIC'; // 실용적 구현 vs 체계적 설계
+  sentenceTone?: 'CONCISE' | 'DETAILED';      // 날카로운 단문 vs 완결형 복문
+}
+
 export interface UserProfile {
   id: string;
   email?: string;
   name?: string;
   role: string;
   interests: string[];
+  preferences?: PersonalPreferences;
   createdAt: number;
 }
 
@@ -23,6 +31,7 @@ export interface RoutineSlot {
 export interface EvolvingContext {
   ongoingTopics: string[];
   domainVocabulary: string[];
+  lifestyleVocabulary?: string[];
   confirmedPreferences: string[];
   recentConfirmedNotes: ConfirmedNote[];
 }

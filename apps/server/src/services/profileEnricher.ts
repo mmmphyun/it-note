@@ -10,6 +10,7 @@ export function createInitialContext(): EvolvingContext {
   return {
     ongoingTopics: [],
     domainVocabulary: [],
+    lifestyleVocabulary: [],
     confirmedPreferences: [],
     recentConfirmedNotes: [],
   };
@@ -105,12 +106,25 @@ export function enrichContext(
   }
   const updatedVocabulary = Array.from(vocabSet).slice(0, 20);
 
-  // 4. confirmedPreferences (가설 문장 자체를 선호 맥락으로 요약)
+  // 4. lifestyleVocabulary 갱신 (일상, 취미, 라이프스타일 고유명사 분리 격리)
+  const lifestyleSet = new Set<string>(current.lifestyleVocabulary || []);
+  const LIFESTYLE_INDICATORS = new Set([
+    '커피', '원두', '에스프레소', '카페', '클라이밍', '러닝', '헬스', '운동',
+    '수영', '산책', '고양이', '강아지', '영화', '전시', '요리', '독서', '여행'
+  ]);
+  for (const k of candidateKeywords) {
+    if (LIFESTYLE_INDICATORS.has(k) || (!/[a-zA-Z]/.test(k) && k.length >= 2 && !current.domainVocabulary.includes(k))) {
+      lifestyleSet.add(k);
+    }
+  }
+  const updatedLifestyle = Array.from(lifestyleSet).slice(0, 15);
+
+  // 5. confirmedPreferences (가설 문장 자체를 선호 맥락으로 요약)
   const prefSet = new Set<string>(current.confirmedPreferences);
   prefSet.add(confirmedNote.sentence.trim());
   const updatedPreferences = Array.from(prefSet).slice(0, 10);
 
-  // 5. recentConfirmedNotes (최대 5개 최신순 보존)
+  // 6. recentConfirmedNotes (최대 5개 최신순 보존)
   const updatedNotes = [
     confirmedNote,
     ...current.recentConfirmedNotes.filter((n) => n.id !== confirmedNote.id),
@@ -119,6 +133,7 @@ export function enrichContext(
   return {
     ongoingTopics: updatedTopics,
     domainVocabulary: updatedVocabulary,
+    lifestyleVocabulary: updatedLifestyle,
     confirmedPreferences: updatedPreferences,
     recentConfirmedNotes: updatedNotes,
   };

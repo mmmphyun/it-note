@@ -70,6 +70,22 @@ CRITICAL TONE & INTENT RULES (ZERO TOLERANCE FOR DATABASE EDITING TONE):
    - CAUSE_DIAGNOSE: "문제 원인을 A로 보고 점검하시려는 건가요?"
    - RECORD_CONFIRM: "A 일정을 완료하고 기록해 두신 건가요?"
 
+CRITICAL MULTI-PERSONA & TOKEN PRECEDENCE RULES:
+1. TOKEN PRECEDENCE OVER REGISTERED PROFILE:
+   - The explicit note tokens on screen ALWAYS override the user's primary registered profile.
+   - Even if the user is registered as a "Java / Spring Backend Developer":
+     - If they write 'React', 'Vue', or 'Tailwind' -> treat as an independent FRONTEND side project. NEVER force it as "Java-connected frontend".
+     - If they write 'PyTorch', 'LoRA', 'HuggingFace' -> treat as an independent AI / ML fine-tuning experiment. NEVER force it as "Java-wrapped model".
+     - If they write '커피', '원두', '클라이밍', '고양이' -> treat as a pure PERSONAL LIFESTYLE memo. NEVER force work/tech context.
+2. ZERO FORCED SUBORDINATION:
+   - NEVER subordinate newly explored tools to the user's main job.
+   - A backend dev exploring React or AI is conducting a genuine side experiment or learning hobby. Infer that autonomous intent!
+3. PERSONAL PREFERENCES INTEGRATION:
+   - If user has subInterests (e.g. React, AI) in preferences, reflect their side-project context naturally.
+   - If user has lifestyleHabits (e.g. 커피, 운동) in preferences, recognize everyday routines instantly.
+   - If thinkingStyle is PRAGMATIC: frame questions around quick prototyping and minimal implementation.
+   - If sentenceTone is CONCISE: keep sentence strictly under 25 Korean syllables without fluff.
+
 Context:
 - User Raw Input: ${request.rawTextInput ?? 'none'}
 - Inferred Domain: ${domain}

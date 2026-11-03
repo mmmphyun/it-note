@@ -28,6 +28,10 @@
   });
   let profileRoleInput = $state('');
   let profileInterestsInput = $state('');
+  let subInterestsInput = $state('');
+  let lifestyleInput = $state('');
+  let thinkingStyle = $state<'PRAGMATIC' | 'SYSTEMATIC'>('PRAGMATIC');
+  let sentenceTone = $state<'CONCISE' | 'DETAILED'>('CONCISE');
 
   let routineSlots = $state<RoutineSlot[]>([]);
   let billingStatus = $state<BillingStatus>({ plan: 'free', isActive: false });
@@ -74,6 +78,12 @@
           userProfile = data.session.user;
           profileRoleInput = userProfile.role || '';
           profileInterestsInput = (userProfile.interests || []).join(', ');
+          if (userProfile.preferences) {
+            subInterestsInput = (userProfile.preferences.subInterests || []).join(', ');
+            lifestyleInput = (userProfile.preferences.lifestyleHabits || []).join(', ');
+            thinkingStyle = userProfile.preferences.thinkingStyle || 'PRAGMATIC';
+            sentenceTone = userProfile.preferences.sentenceTone || 'CONCISE';
+          }
         }
       }
     } catch {}
@@ -153,7 +163,17 @@
   async function handleSaveProfile(e: SubmitEvent) {
     e.preventDefault();
     isSaving = true;
-    const parsed = profileInterestsInput
+    const parsedInterests = profileInterestsInput
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const parsedSub = subInterestsInput
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const parsedLife = lifestyleInput
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
@@ -162,7 +182,16 @@
       const res = await fetch('/api/auth/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: profileRoleInput, interests: parsed }),
+        body: JSON.stringify({
+          role: profileRoleInput,
+          interests: parsedInterests,
+          preferences: {
+            subInterests: parsedSub,
+            lifestyleHabits: parsedLife,
+            thinkingStyle,
+            sentenceTone,
+          },
+        }),
       });
       if (!res.ok) throw new Error('프로필 저장에 실패했습니다.');
       const data = await res.json();
@@ -375,10 +404,48 @@
             <input
               id="p-interests"
               type="text"
-              placeholder="예: Svelte 5, Hono, 분산 시스템, Zero-UI"
+              placeholder="예: Java, Spring Boot, MySQL, 쿠버네티스"
               bind:value={profileInterestsInput}
             />
           </div>
+
+          <div class="form-group">
+            <label for="p-sub">사이드 프로젝트 / 서브 관심사 (선택)</label>
+            <input
+              id="p-sub"
+              type="text"
+              placeholder="예: React, Next.js, PyTorch/AI 파인튜닝, Flutter"
+              bind:value={subInterestsInput}
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="p-life">취미 및 개인 일상 관심사 (선택)</label>
+            <input
+              id="p-life"
+              type="text"
+              placeholder="예: 에스프레소/원두, 클라이밍, 러닝, 독서"
+              bind:value={lifestyleInput}
+            />
+          </div>
+
+          <div class="form-row-2col">
+            <div class="form-group">
+              <label for="p-thinking">선호 사고 스타일</label>
+              <select id="p-thinking" bind:value={thinkingStyle}>
+                <option value="PRAGMATIC">실용주의 빠른 구현 (Ponytail / 프로토타입)</option>
+                <option value="SYSTEMATIC">체계적 구조와 안정성 (아키텍처 / 보안)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="p-tone">AI 문장 선호 문체</label>
+              <select id="p-tone" bind:value={sentenceTone}>
+                <option value="CONCISE">핵심만 찌르는 날카로운 단문 (20자 이내)</option>
+                <option value="DETAILED">맥락과 이유를 짚어주는 완결형 복문</option>
+              </select>
+            </div>
+          </div>
+
           <button type="submit" class="btn btn-save" disabled={isSaving}>
             {isSaving ? '저장 중...' : '프로필 페르소나 저장'}
           </button>
@@ -716,7 +783,12 @@
     display: flex;
     flex-direction: column;
     gap: 18px;
-    max-width: 500px;
+    max-width: 640px;
+  }
+  .form-row-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
   }
   .form-group {
     display: flex;
@@ -728,11 +800,13 @@
     font-weight: 600;
     color: #444;
   }
-  .form-group input {
+  .form-group input,
+  .form-group select {
     padding: 10px 12px;
     border-radius: 6px;
     border: 1px solid rgba(0, 0, 0, 0.15);
     font-size: 14px;
+    background: #FFF;
   }
   .btn-save {
     align-self: flex-start;
