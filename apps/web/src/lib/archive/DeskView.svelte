@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { onMount } from 'svelte';
   import type { ConfirmedNote, EvolvingContext, RoutineSlot, BillingStatus, UserProfile } from '@itnote/shared';
   import RoutineMatrix from '../auth/RoutineMatrix.svelte';
@@ -390,31 +390,31 @@
         </p>
         <form class="profile-form" onsubmit={handleSaveProfile}>
           <div class="form-group">
-            <label for="p-role">현재 직무 / 목표 페르소나</label>
+            <label for="p-role">현재 본업 / 전공 / 주 직무</label>
             <input
               id="p-role"
               type="text"
-              placeholder="예: DevSecOps 취준생, 풀스택 아키텍트"
+              placeholder="예: 대학생/취준생, 서비스 기획자, 디자이너, 마케터, 개발자, 작가, 프리랜서"
               bind:value={profileRoleInput}
               required
             />
           </div>
           <div class="form-group">
-            <label for="p-interests">전문 연구 및 관심 기술 (쉼표 구분)</label>
+            <label for="p-interests">몰입 중인 핵심 주제 및 관심사 (쉼표 구분)</label>
             <input
               id="p-interests"
               type="text"
-              placeholder="예: Java, Spring Boot, MySQL, 쿠버네티스"
+              placeholder="예: UX 리서치, 브랜딩 전략, 자격증 시험공부, 데이터 분석, 시장 조사, 영상 편집"
               bind:value={profileInterestsInput}
             />
           </div>
 
           <div class="form-group">
-            <label for="p-sub">사이드 프로젝트 / 서브 관심사 (선택)</label>
+            <label for="p-sub">부업 및 사이드 프로젝트 (선택)</label>
             <input
               id="p-sub"
               type="text"
-              placeholder="예: React, Next.js, PyTorch/AI 파인튜닝, Flutter"
+              placeholder="예: 스마트스토어/이커머스, 소설/브런치 글쓰기, 앱 런칭, 유튜브 운영, 투자"
               bind:value={subInterestsInput}
             />
           </div>
@@ -424,7 +424,7 @@
             <input
               id="p-life"
               type="text"
-              placeholder="예: 에스프레소/원두, 클라이밍, 러닝, 독서"
+              placeholder="예: 스페셜티 커피/원두, 클라이밍/필라테스, 미술관 관람, 여행 계획, 요리/맛집"
               bind:value={lifestyleInput}
             />
           </div>
@@ -433,15 +433,15 @@
             <div class="form-group">
               <label for="p-thinking">선호 사고 스타일</label>
               <select id="p-thinking" bind:value={thinkingStyle}>
-                <option value="PRAGMATIC">실용주의 빠른 구현 (Ponytail / 프로토타입)</option>
-                <option value="SYSTEMATIC">체계적 구조와 안정성 (아키텍처 / 보안)</option>
+                <option value="PRAGMATIC">직관적 실행과 빠른 시도 (아이디어 실험 우선)</option>
+                <option value="SYSTEMATIC">신중한 구조화와 체계성 (계획 및 전체 구조 우선)</option>
               </select>
             </div>
             <div class="form-group">
               <label for="p-tone">AI 문장 선호 문체</label>
               <select id="p-tone" bind:value={sentenceTone}>
                 <option value="CONCISE">핵심만 찌르는 날카로운 단문 (20자 이내)</option>
-                <option value="DETAILED">맥락과 이유를 짚어주는 완결형 복문</option>
+                <option value="DETAILED">친절하고 맥락을 짚어주는 완결형 복문</option>
               </select>
             </div>
           </div>

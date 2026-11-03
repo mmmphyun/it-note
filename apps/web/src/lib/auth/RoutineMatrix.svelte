@@ -12,13 +12,13 @@
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
   const CATEGORIES = [
-    { id: 'DEVELOPMENT', label: '개발 / 코딩', color: '#385E72' },
-    { id: 'DESIGN', label: '기획 / 설계', color: '#3E7B68' },
-    { id: 'RESEARCH', label: '학습 / 연구', color: '#C27D38' },
-    { id: 'ERASER', label: '지우개 (비우기)', color: '#FFFFFF' },
+    { id: 'DEEP_WORK', label: '집중 작업 / 연구', color: '#385E72' },
+    { id: 'PLANNING', label: '기획 / 설계 / 회의', color: '#3E7B68' },
+    { id: 'LIFESTYLE', label: '자기계발 / 취미', color: '#C27D38' },
+    { id: 'ERASER', label: '지우개 (비우기 / 휴식)', color: '#FFFFFF' },
   ] as const;
 
-  let selectedCategory = $state<string>('개발 / 코딩');
+  let selectedCategory = $state<string>('집중 작업 / 연구');
 
   // 셀별 라벨 매트릭스 [day][hour] (null이면 미지정)
   let labelGrid = $state<(string | null)[][]>(
@@ -45,7 +45,7 @@
   let isDragging = $state(false);
 
   function applyCell(day: number, hour: number) {
-    if (selectedCategory === '지우개 (비우기)') {
+    if (selectedCategory.startsWith('지우개')) {
       labelGrid[day][hour] = null;
     } else {
       labelGrid[day][hour] = selectedCategory;

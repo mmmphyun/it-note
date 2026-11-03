@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { onMount } from 'svelte';
   import type { UserProfile, RoutineSlot, PersonalPreferences } from '@itnote/shared';
   import RoutineMatrix from './RoutineMatrix.svelte';
@@ -252,18 +252,18 @@
     <!-- 본문 질문 카드 (단일 질문 집중형) -->
     <main class="question-card">
       {#if currentStep === 1}
-        <!-- Step 1 (필수): 주 직무 / 목표 -->
+        <!-- Step 1 (필수): 주 직무 / 본업 / 전공 -->
         <div class="step-content">
           <span class="question-number">Q1.</span>
-          <h2 class="question-title">현재 주 직무나 목표가 무엇인가요?</h2>
+          <h2 class="question-title">현재 어떤 일이나 공부를 하고 계신가요?</h2>
           <p class="question-desc">
-            가장 주력으로 삼고 계신 엔지니어링 역할이나 직무 목표를 적어주세요.
+            가장 많은 시간과 열정을 쏟고 있는 본업, 전공 연구, 혹은 준비 중인 목표를 알려주세요.
           </p>
           <div class="input-area">
             <input
               type="text"
               class="large-input"
-              placeholder="예: Java Spring 백엔드 개발자, DevSecOps 취준생"
+              placeholder="예: 대학생/취준생, 서비스 기획자, 디자이너, 마케터, 개발자, 작가, 프리랜서"
               bind:value={role}
               onkeydown={(e) => e.key === 'Enter' && role.trim() && nextStep()}
             />
@@ -282,18 +282,18 @@
         </div>
 
       {:else if currentStep === 2}
-        <!-- Step 2 (필수): 주력 전문 기술 관심사 -->
+        <!-- Step 2 (필수): 주요 관심 주제 / 업무 분야 -->
         <div class="step-content">
           <span class="question-number">Q2.</span>
-          <h2 class="question-title">주로 연구하거나 사용하는 기술 스택은 무엇인가요?</h2>
+          <h2 class="question-title">요즘 가장 깊게 몰입하고 있는 핵심 주제는 무엇인가요?</h2>
           <p class="question-desc">
-            주 직무에서 다루는 주요 언어, 프레임워크, 도구를 쉼표로 구분해 적어주세요.
+            업무, 전공 연구, 자격증, 사업 기획 등 평소 메모할 일이 많은 주요 관심사를 쉼표로 적어주세요.
           </p>
           <div class="input-area">
             <input
               type="text"
               class="large-input"
-              placeholder="예: Java, Spring Boot, MySQL, 도커, 쿠버네티스"
+              placeholder="예: UX 리서치, 브랜딩 전략, 자격증 시험공부, 데이터 분석, 시장 조사, 영상 편집"
               bind:value={interestsString}
               onkeydown={(e) => e.key === 'Enter' && interestsString.trim() && nextStep()}
             />
@@ -317,7 +317,7 @@
           <span class="question-number">Q3.</span>
           <h2 class="question-title">평소 주간 집중 작업 루틴을 지정해 주세요.</h2>
           <p class="question-desc">
-            현재 요일과 시각을 대조하여 AI가 작업 모드(개발, 기획, 학습)에 맞춰 가설 우선순위를 최적화합니다.
+            현재 요일과 시각을 대조하여 AI가 작업 모드(집중 작업, 기획/회의, 자기계발)에 맞춰 가설 우선순위를 최적화합니다.
           </p>
           <div class="matrix-box">
             <RoutineMatrix {routineSlots} onChange={handleRoutineChange} />
@@ -331,22 +331,22 @@
         </div>
 
       {:else if currentStep === 4}
-        <!-- Step 4 (선택): 서브 기술 / 사이드 프로젝트 -->
+        <!-- Step 4 (선택): 서브 관심사 / 사이드 프로젝트 -->
         <div class="step-content">
           <div class="opt-indicator">
             <span class="badge-opt">선택 질문</span>
             <span>건너뛰어도 무방합니다.</span>
           </div>
           <span class="question-number">Q4.</span>
-          <h2 class="question-title">주 직무 외에 관심 있는 사이드 프로젝트 기술이 있나요?</h2>
+          <h2 class="question-title">본업 외에 부업이나 사이드 프로젝트로 도전 중인 영역이 있나요?</h2>
           <p class="question-desc">
-            백엔드 개발자라도 프론트엔드(React)나 AI 파인튜닝(PyTorch)을 할 수 있습니다. 억지로 주 직무에 엮지 않고 독립된 맥락으로 추론합니다.
+            본업과 전혀 다른 분야라도 괜찮습니다. AI가 본업의 틀에 가두지 않고 독립적인 아이디어로 이해합니다.
           </p>
           <div class="input-area">
             <input
               type="text"
               class="large-input"
-              placeholder="예: React, Next.js, PyTorch/LoRA, Flutter, Rust (쉼표 구분)"
+              placeholder="예: 스마트스토어/이커머스, 소설/브런치 글쓰기, 앱 런칭, 유튜브 채널 운영, 주식/부동산 (쉼표 구분)"
               bind:value={subInterestsString}
               onkeydown={(e) => e.key === 'Enter' && nextStep()}
             />
@@ -376,7 +376,7 @@
             <input
               type="text"
               class="large-input"
-              placeholder="예: 에스프레소/원두, 클라이밍, 러닝, 독서, 요리 (쉼표 구분)"
+              placeholder="예: 스페셜티 커피/원두, 클라이밍/필라테스, 미술관 관람, 여행 계획, 요리/맛집, 반려동물 (쉼표 구분)"
               bind:value={lifestyleHabitsString}
               onkeydown={(e) => e.key === 'Enter' && nextStep()}
             />
@@ -398,9 +398,9 @@
             <span>건너뛰어도 무방합니다.</span>
           </div>
           <span class="question-number">Q6.</span>
-          <h2 class="question-title">선호하는 사고 스타일과 AI 문체는 무엇인가요?</h2>
+          <h2 class="question-title">선호하는 사고 스타일과 AI 제안 문체는 무엇인가요?</h2>
           <p class="question-desc">
-            가설을 빠르게 실험할지, 구조를 탄탄히 할지, 그리고 답변의 길이를 당신의 성향에 맞춥니다.
+            생각을 빠르게 시도할지 신중하게 정리할지, 그리고 답변의 어조를 당신의 성향에 맞춥니다.
           </p>
 
           <div class="choices-grid">
@@ -412,8 +412,8 @@
                 class:selected={thinkingStyle === 'PRAGMATIC'}
                 onclick={() => (thinkingStyle = 'PRAGMATIC')}
               >
-                <strong>실용주의적 빠른 실험 (Ponytail)</strong>
-                <p>최소한의 코드로 동작을 검증하고 프로토타이핑하는 것을 선호합니다.</p>
+                <strong>직관적 실행과 빠른 시도</strong>
+                <p>일단 떠오른 생각을 메모하고 가볍게 시도해 보는 것을 선호합니다.</p>
               </button>
               <button
                 type="button"
@@ -421,8 +421,8 @@
                 class:selected={thinkingStyle === 'SYSTEMATIC'}
                 onclick={() => (thinkingStyle = 'SYSTEMATIC')}
               >
-                <strong>체계적 구조와 안정성 (Architectural)</strong>
-                <p>설계 패턴, 보안, 예외 처리 및 견고한 인프라를 우선시합니다.</p>
+                <strong>신중한 구조화와 체계성</strong>
+                <p>꼼꼼하게 계획을 세우고 논리적 구조와 전체 맥락을 먼저 잡는 것을 선호합니다.</p>
               </button>
             </div>
 
@@ -435,7 +435,7 @@
                 onclick={() => (sentenceTone = 'CONCISE')}
               >
                 <strong>날카로운 단문형 (20자 이내)</strong>
-                <p>불필요한 수식어 없이 핵심 판단만 묻는 단결한 문장을 선호합니다.</p>
+                <p>군더더기 없이 요점만 직관적으로 묻는 간결한 문장을 선호합니다.</p>
               </button>
               <button
                 type="button"
@@ -443,8 +443,8 @@
                 class:selected={sentenceTone === 'DETAILED'}
                 onclick={() => (sentenceTone = 'DETAILED')}
               >
-                <strong>맥락 중심 완결형 복문</strong>
-                <p>배경 이유와 트레이드오프를 짚어주는 포괄적인 문장을 선호합니다.</p>
+                <strong>친절하고 맥락을 짚어주는 완결형 복문</strong>
+                <p>생각의 배경과 이유를 함께 되짚어주는 포괄적인 문장을 선호합니다.</p>
               </button>
             </div>
           </div>
