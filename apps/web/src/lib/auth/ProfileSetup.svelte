@@ -318,8 +318,8 @@
     };
 
     try {
-      // 1. 프로필 업데이트
-      const resProf = await fetch('/api/auth/profile', {
+      // 1. 프로필 업데이트 (세션 만료/서버 재시작으로 401 발생 시 자동 복구 후 1회 재시도)
+      let resProf = await fetch('/api/auth/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -328,7 +328,27 @@
           preferences,
         }),
       });
-      if (!resProf.ok) throw new Error('프로필 저장에 실패했습니다.');
+
+      if (resProf.status === 401) {
+        // 인메모리 세션 유실 복구: 신규 데모 세션 자동 발급 후 재시도
+        const reAuth = await fetch('/api/auth/demo?fresh=1', { method: 'POST' });
+        if (reAuth.ok) {
+          resProf = await fetch('/api/auth/profile', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              role,
+              interests: parsedInterests,
+              preferences,
+            }),
+          });
+        }
+      }
+
+      if (!resProf.ok) {
+        const errJson = await resProf.json().catch(() => ({}));
+        throw new Error(errJson.error ? `프로필 저장 실패: ${errJson.error}` : '프로필 저장에 실패했습니다.');
+      }
       const dataProf = await resProf.json();
 
       // 2. 루틴 업데이트

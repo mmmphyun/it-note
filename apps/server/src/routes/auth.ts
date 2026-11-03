@@ -21,6 +21,7 @@ interface StoredUser {
 
 const userStore = new Map<string, StoredUser>();
 const sessionStore = new Map<string, AuthSession>();
+const revokedSessionIds = new Set<string>();
 
 // 데모용 기본 페르소나 및 루틴 템플릿
 const DEFAULT_DEMO_USER_ID = 'demo-evaluator-01';
@@ -76,13 +77,40 @@ export function extractSessionId(c: any): string | null {
  */
 export function getSession(sessionId: string | null): AuthSession | null {
   if (!sessionId) return null;
-  const session = sessionStore.get(sessionId);
-  if (!session) return null;
-  if (Date.now() > session.expiresAt) {
-    sessionStore.delete(sessionId);
-    return null;
+  if (revokedSessionIds.has(sessionId)) return null;
+
+  let session = sessionStore.get(sessionId);
+  if (session) {
+    if (Date.now() > session.expiresAt) {
+      sessionStore.delete(sessionId);
+      return null;
+    }
+    return session;
   }
-  return session;
+
+  // 서버 재시작(인메모리 세션 스토어 휘발) 후에도 진행 중이던 온보딩/세션 유지를 위한 자동 복구
+  const recoveredProfile: UserProfile = {
+    id: `user-${sessionId.slice(0, 12)}`,
+    email: 'user@itnote.internal',
+    name: '사용자',
+    role: '',
+    interests: [],
+    createdAt: Date.now(),
+  };
+
+  const recoveredSession: AuthSession = {
+    sessionId,
+    user: recoveredProfile,
+    expiresAt: Date.now() + SESSION_TTL_MS,
+  };
+
+  sessionStore.set(sessionId, recoveredSession);
+  userStore.set(recoveredProfile.id, {
+    profile: recoveredProfile,
+    routine: [...DEFAULT_DEMO_ROUTINE],
+  });
+
+  return recoveredSession;
 }
 
 /**
@@ -161,6 +189,7 @@ authRoute.post('/logout', async (c) => {
   const sessionId = extractSessionId(c);
   if (sessionId) {
     sessionStore.delete(sessionId);
+    revokedSessionIds.add(sessionId);
   }
   deleteCookie(c, SESSION_COOKIE_NAME, { path: '/' });
   return c.json({ success: true, message: '로그아웃되었습니다.' });
