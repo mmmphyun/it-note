@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { onMount } from 'svelte';
   import type { UserProfile, RoutineSlot, PersonalPreferences } from '@itnote/shared';
   import RoutineMatrix from './RoutineMatrix.svelte';
@@ -55,20 +55,32 @@
   // 캔버스 필기 이벤트 핸들러
   function setupSignatureCanvas(node: HTMLCanvasElement) {
     signatureCanvas = node;
+    const rect = node.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    node.width = rect.width * dpr;
+    node.height = rect.height * dpr;
+
     const ctx = node.getContext('2d');
     if (!ctx) return;
-
+    ctx.scale(dpr, dpr);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = 3;
     ctx.strokeStyle = '#2B2B2B';
   }
 
+  function getCanvasPoint(e: PointerEvent) {
+    if (!signatureCanvas) return { x: 0, y: 0 };
+    const rect = signatureCanvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+  }
+
   function handleSigPointerDown(e: PointerEvent) {
     if (!signatureCanvas) return;
-    const rect = signatureCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = getCanvasPoint(e);
     isDrawing = true;
     strokeCount++;
     hasDrawnSignature = true;
@@ -84,9 +96,7 @@
 
   function handleSigPointerMove(e: PointerEvent) {
     if (!isDrawing || !signatureCanvas) return;
-    const rect = signatureCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = getCanvasPoint(e);
 
     strokePoints.push({ x, y, t: performance.now() });
 
@@ -459,21 +469,19 @@
         </div>
 
       {:else if currentStep === 7}
-        <!-- Step 7 (최종 피날레): 필기 데이터 수집 동의 & 서약 캘리브레이션 -->
+        <!-- Step 7 (최종 피날레): 무의식적 필기 서약 & 캘리브레이션 -->
         <div class="step-content">
           <span class="question-number">Final.</span>
-          <h2 class="question-title">필기 텔레메트리 수집 동의 및 자필 서약</h2>
+          <h2 class="question-title">마지막으로, 당신의 생각을 적을 준비가 되셨나요?</h2>
           <p class="question-desc">
-            잇적은 사용자의 고유한 <strong>필압, 획 속도, 펜 각도(120Hz)</strong>를 실시간 분석하여 인지적 집중도를 추론합니다.
-            개인정보 및 필기 데이터 활용에 동의하신다면 아래 종이에 직접 <strong>'동의함'</strong> 또는 <strong>'동의합니다'</strong>를 적어주세요.
+            잇적은 당신의 고유한 <strong>필기 속도와 압력</strong>을 이해하여, 가장 알맞은 순간에 생각을 잇기 위해 필기 데이터를 활용합니다.<br />
+            개인정보 및 필기 데이터 활용에 동의하시나요?
           </p>
 
           <div class="signature-canvas-wrapper">
             <canvas
               use:setupSignatureCanvas
               class="signature-canvas"
-              width="600"
-              height="200"
               onpointerdown={handleSigPointerDown}
               onpointermove={handleSigPointerMove}
               onpointerup={handleSigPointerUp}
@@ -482,16 +490,16 @@
 
             <div class="canvas-watermark-guide">
               {#if !hasDrawnSignature}
-                <span class="guide-text">여기에 스타일러스 펜 또는 마우스로 '동의함' 또는 '동의합니다'를 적어주세요</span>
+                <span class="guide-text">종이 위에 당신의 답을 자유롭게 적어주세요</span>
               {/if}
             </div>
 
             <div class="canvas-footer-bar">
               <span class="calib-stats">
                 {#if hasDrawnSignature}
-                  획수: <strong>{strokeCount}획</strong> · 속도 계수: <strong>{calibrationSpeed} px/ms</strong> (초기 캘리브레이션 완료)
+                  ✓ 서명이 확인되었습니다. 아래 버튼을 눌러 시작하세요.
                 {:else}
-                  * 자필 글씨체를 바탕으로 사용자님의 초기 필기 속도와 문체 성향이 캘리브레이션됩니다.
+                  * 화면 속 종이에 직접 글씨를 적어주시면 서명이 완료됩니다.
                 {/if}
               </span>
               <button type="button" class="btn-clear" onclick={clearSignature}>다시 쓰기</button>
@@ -506,7 +514,7 @@
               disabled={!hasDrawnSignature || isSaving}
               onclick={handleFinalSubmit}
             >
-              {isSaving ? '설정 저장 중...' : '동의 완료하고 잇적 시작'}
+              {isSaving ? '설정 저장 중...' : '시작하기'}
             </button>
           </div>
         </div>
