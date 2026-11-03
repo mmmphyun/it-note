@@ -54,13 +54,15 @@ export async function verifyConsent(
 }
 
 /**
- * Gemini 3.1 Flash Lite 기반 멀티모달 필기 인식 및 동의 의사 검증
+ * Gemini 3.5 Flash Lite 기반 멀티모달 필기 인식 및 동의 의사 검증
  */
 async function callGeminiConsentVerifier(
   imageBase64: string,
   ai: GoogleGenAI
 ): Promise<ConsentVerificationResponse | null> {
-  const base64Data = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+  const mimeMatch = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
+  const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  const base64Data = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
 
   const prompt = `You are an AI handwriting verifier for It!note.
 The user was asked the question: "개인정보 및 필기 데이터 활용에 동의하시나요?" (Do you agree to the collection and use of personal and handwriting data?)
@@ -80,10 +82,10 @@ Tasks:
    - Example for UNCLEAR: "글씨를 명확히 판독하기 어렵습니다."`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-flash-lite',
+    model: 'gemini-3.5-flash-lite',
     contents: [
       { text: prompt },
-      { inlineData: { mimeType: 'image/png', data: base64Data } },
+      { inlineData: { mimeType, data: base64Data } },
     ],
     config: {
       responseMimeType: 'application/json',
@@ -115,15 +117,15 @@ Tasks:
         : 'UNCLEAR';
 
     let reason = parsed.reason ? String(parsed.reason).trim() : undefined;
-    if (reason && /[a-zA-Z]{3,}/.test(reason)) {
+    if (!reason || /[a-zA-Z]{3,}/.test(reason)) {
       if (sentiment === 'DISAGREED') {
         reason = `'${parsed.recognizedText || '거부'}' 의사로 확인되었습니다.`;
       } else if (sentiment === 'AGREED') {
         reason = `'${parsed.recognizedText || '동의'}' 의사가 확인되었습니다.`;
       } else if (sentiment === 'IRRELEVANT') {
-        reason = `'${parsed.recognizedText || '무관한 내용'}'(으)로 인식되었으나 동의 여부를 알 수 없는 답변입니다.`;
+        reason = `'${parsed.recognizedText || '해당 내용'}'(으)로 인식되었으나 동의 여부를 알 수 없는 답변입니다.`;
       } else {
-        reason = '글씨를 명확히 판별하기 어렵습니다.';
+        reason = '글씨를 명확히 판독하기 어렵습니다. 조금 더 또렷하게 적어주세요.';
       }
     }
 

@@ -69,12 +69,17 @@
     signatureCanvas = node;
     const rect = node.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    node.width = rect.width * dpr;
-    node.height = rect.height * dpr;
+    const width = Math.round(rect.width) || 740;
+    const height = Math.round(rect.height) || 180;
+    node.width = width * dpr;
+    node.height = height * dpr;
 
     const ctx = node.getContext('2d');
     if (!ctx) return;
     ctx.scale(dpr, dpr);
+    // 불투명 흰색 배경 채우기 (JPEG 변환 및 멀티모달 Vision 디코딩 시 왜곡 방지)
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = 3;
@@ -84,13 +89,20 @@
   function getCanvasPoint(e: PointerEvent) {
     if (!signatureCanvas) return { x: 0, y: 0 };
     const rect = signatureCanvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
+    const dpr = window.devicePixelRatio || 1;
+    const logicalWidth = signatureCanvas.width / dpr;
+    const logicalHeight = signatureCanvas.height / dpr;
+
+    // CSS 렌더링 크기와 캔버스 내부 논리 버퍼 크기의 비율을 보정하여 우측 포인터 어긋남 완벽 방지
     return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
+      x: ((e.clientX - rect.left) / rect.width) * logicalWidth,
+      y: ((e.clientY - rect.top) / rect.height) * logicalHeight,
     };
   }
 
   function handleSigPointerDown(e: PointerEvent) {
+    if (e.button !== 0) return; // 좌클릭/터치/펜만 허용 (우클릭 등 무시)
     if (!signatureCanvas) return;
     const { x, y } = getCanvasPoint(e);
     isDrawing = true;
@@ -149,7 +161,7 @@
     consentStatus = 'ANALYZING';
 
     try {
-      const imageBase64 = signatureCanvas.toDataURL('image/png');
+      const imageBase64 = signatureCanvas.toDataURL('image/jpeg', 0.95);
       const res = await fetch('/api/auth/verify-consent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -234,7 +246,11 @@
     if (!signatureCanvas) return;
     const ctx = signatureCanvas.getContext('2d');
     if (ctx) {
-      ctx.clearRect(0, 0, signatureCanvas.width, signatureCanvas.height);
+      const dpr = window.devicePixelRatio || 1;
+      const logicalWidth = signatureCanvas.width / dpr;
+      const logicalHeight = signatureCanvas.height / dpr;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, logicalWidth, logicalHeight);
     }
     strokeCount = 0;
     strokePoints = [];
@@ -624,6 +640,7 @@
               onpointermove={handleSigPointerMove}
               onpointerup={handleSigPointerUp}
               onpointerleave={handleSigPointerUp}
+              oncontextmenu={(e) => e.preventDefault()}
             ></canvas>
 
             <div class="canvas-watermark-guide">

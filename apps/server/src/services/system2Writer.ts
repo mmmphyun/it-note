@@ -117,7 +117,7 @@ Specific Chosen & Feedback Handling:
 ${negativeConstraintPrompt}`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-flash-lite',
+    model: 'gemini-3.5-flash-lite',
     contents: systemInstruction,
     config: {
       maxOutputTokens: 500,

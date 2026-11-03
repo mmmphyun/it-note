@@ -136,16 +136,18 @@ Action Tasks (Determine the user's primary human action):
   const contents: any[] = [{ text: prompt }];
 
   if (request.croppedImageBase64 && request.croppedImageBase64.startsWith('data:image/')) {
+    const mimeMatch = request.croppedImageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
     contents.push({
       inlineData: {
-        mimeType: 'image/png',
-        data: request.croppedImageBase64.replace(/^data:image\/[a-z]+;base64,/, ''),
+        mimeType,
+        data: request.croppedImageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, ''),
       },
     });
   }
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-flash-lite',
+    model: 'gemini-3.5-flash-lite',
     contents,
     config: {
       responseMimeType: 'application/json',
