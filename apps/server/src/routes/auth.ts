@@ -1,6 +1,12 @@
 import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import type { UserProfile, RoutineSlot, AuthSession } from '@itnote/shared';
+import type {
+  UserProfile,
+  RoutineSlot,
+  AuthSession,
+  ConsentVerificationRequest,
+} from '@itnote/shared';
+import { verifyConsent } from '../services/consentVerifier';
 
 export const authRoute = new Hono();
 
@@ -315,6 +321,17 @@ authRoute.put('/profile', async (c) => {
         lifestyleHabits: Array.isArray(body.preferences.lifestyleHabits) ? body.preferences.lifestyleHabits.map(String) : [],
         thinkingStyle: body.preferences.thinkingStyle === 'SYSTEMATIC' ? 'SYSTEMATIC' : 'PRAGMATIC',
         sentenceTone: body.preferences.sentenceTone === 'DETAILED' ? 'DETAILED' : 'CONCISE',
+        calibrationSignature:
+          body.preferences.calibrationSignature && typeof body.preferences.calibrationSignature === 'object'
+            ? {
+                strokeCount: Number(body.preferences.calibrationSignature.strokeCount) || 0,
+                avgSpeed: Number(body.preferences.calibrationSignature.avgSpeed) || 0,
+                agreedLength: body.preferences.calibrationSignature.agreedLength === 'LONG' ? 'LONG' : 'SHORT',
+                recognizedText: body.preferences.calibrationSignature.recognizedText
+                  ? String(body.preferences.calibrationSignature.recognizedText)
+                  : undefined,
+              }
+            : undefined,
       };
     }
     session.user = { ...stored.profile };
@@ -355,4 +372,17 @@ authRoute.put('/routine', async (c) => {
   }
 
   return c.json({ success: true, routine: stored?.routine ?? [] });
+});
+
+/**
+ * 10. 필기 자필 서약 실시간 검증 (LLM Multimodal + 텍스트 판정)
+ */
+authRoute.post('/verify-consent', async (c) => {
+  const body = await c.req.json<ConsentVerificationRequest>().catch(() => null);
+  if (!body) {
+    return c.json({ error: 'Invalid request body' }, 400);
+  }
+
+  const result = await verifyConsent(body);
+  return c.json(result);
 });

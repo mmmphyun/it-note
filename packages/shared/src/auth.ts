@@ -5,7 +5,7 @@ import type { ConfirmedNote } from './note';
  */
 
 export interface PersonalPreferences {
-  subInterests?: string[];       // 사이드 프로젝트 / 서브 관심 기술 (예: React, PyTorch)
+  subInterests?: string[];       // 서브 관심 분야 및 관심사 (예: 어학, 자격증, 창작)
   lifestyleHabits?: string[];    // 취미 / 일상 관심사 (예: 커피, 운동, 독서)
   thinkingStyle?: 'PRAGMATIC' | 'SYSTEMATIC'; // 실용적 구현 vs 체계적 설계
   sentenceTone?: 'CONCISE' | 'DETAILED';      // 날카로운 단문 vs 완결형 복문
@@ -13,6 +13,7 @@ export interface PersonalPreferences {
     strokeCount: number;
     avgSpeed: number;
     agreedLength: 'SHORT' | 'LONG'; // '동의함' vs '동의합니다'
+    recognizedText?: string;
   };
 }
 
@@ -90,3 +91,23 @@ export interface RefundResponse {
   refundedAt: number;
   cancelReason: string;
 }
+
+export type ConsentSentiment = 'AGREED' | 'DISAGREED' | 'UNCLEAR';
+
+export interface ConsentVerificationRequest {
+  imageBase64?: string;
+  rawTextInput?: string;
+  strokeMetadata?: {
+    strokeCount: number;
+    avgSpeed?: number;
+  };
+}
+
+export interface ConsentVerificationResponse {
+  isAgreed: boolean;
+  recognizedText: string;
+  sentiment: ConsentSentiment;
+  confidence: number;
+  reason?: string;
+}
+

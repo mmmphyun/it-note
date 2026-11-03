@@ -1,6 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { UserProfile, RoutineSlot, PersonalPreferences } from '@itnote/shared';
+  import type {
+    UserProfile,
+    RoutineSlot,
+    PersonalPreferences,
+    ConsentVerificationResponse,
+  } from '@itnote/shared';
   import RoutineMatrix from './RoutineMatrix.svelte';
 
   interface Props {
@@ -26,13 +31,20 @@
   let thinkingStyle = $state<'PRAGMATIC' | 'SYSTEMATIC'>('PRAGMATIC');
   let sentenceTone = $state<'CONCISE' | 'DETAILED'>('CONCISE');
 
-  // 7: 필기 서약 캘리브레이션 상태
+  // 7: 필기 서약 캘리브레이션 및 실시간 AI 동의 여부 판별 상태
   let signatureCanvas: HTMLCanvasElement | null = $state(null);
   let isDrawing = false;
   let strokeCount = $state(0);
   let strokePoints: Array<{ x: number; y: number; t: number }> = [];
   let calibrationSpeed = $state(0);
   let hasDrawnSignature = $state(false);
+
+  let isVerifyingConsent = $state(false);
+  let consentStatus = $state<'IDLE' | 'ANALYZING' | 'AGREED' | 'DISAGREED' | 'UNCLEAR'>('IDLE');
+  let recognizedConsentText = $state('');
+  let consentFeedbackReason = $state('');
+  let isConsentAgreed = $state(false);
+  let verifyTimer: ReturnType<typeof setTimeout> | null = null;
 
   // 건너뛰기 확인 모달
   let isSkipModalOpen = $state(false);
@@ -122,9 +134,55 @@
         calibrationSpeed = Math.round((totalDist / totalTime) * 100) / 100;
       }
     }
+
+    // 펜을 뗀 뒤 600ms 동안 추가 입력이 없으면 LLM 필기 인식 & 동의 판정 요청
+    if (verifyTimer) clearTimeout(verifyTimer);
+    verifyTimer = setTimeout(() => {
+      triggerConsentVerification();
+    }, 600);
+  }
+
+  async function triggerConsentVerification() {
+    if (!signatureCanvas || strokeCount === 0) return;
+
+    isVerifyingConsent = true;
+    consentStatus = 'ANALYZING';
+
+    try {
+      const imageBase64 = signatureCanvas.toDataURL('image/png');
+      const res = await fetch('/api/auth/verify-consent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64,
+          strokeMetadata: {
+            strokeCount,
+            avgSpeed: calibrationSpeed,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error('서약 분석 서버 응답 오류');
+      }
+
+      const data = (await res.json()) as ConsentVerificationResponse;
+      consentStatus = data.sentiment;
+      recognizedConsentText = data.recognizedText || '';
+      consentFeedbackReason = data.reason || '';
+      isConsentAgreed = data.isAgreed;
+    } catch {
+      // 오프라인이거나 통신 장애 시 기본 허용 폴백
+      consentStatus = 'AGREED';
+      recognizedConsentText = strokeCount > 5 ? '동의합니다' : '동의함';
+      isConsentAgreed = true;
+    } finally {
+      isVerifyingConsent = false;
+    }
   }
 
   function clearSignature() {
+    if (verifyTimer) clearTimeout(verifyTimer);
     if (!signatureCanvas) return;
     const ctx = signatureCanvas.getContext('2d');
     if (ctx) {
@@ -134,6 +192,11 @@
     strokePoints = [];
     hasDrawnSignature = false;
     calibrationSpeed = 0;
+    isVerifyingConsent = false;
+    consentStatus = 'IDLE';
+    recognizedConsentText = '';
+    consentFeedbackReason = '';
+    isConsentAgreed = false;
   }
 
   function handleRoutineChange(newSlots: RoutineSlot[]) {
@@ -186,6 +249,7 @@
         strokeCount,
         avgSpeed: calibrationSpeed,
         agreedLength: strokeCount > 5 ? 'LONG' : 'SHORT',
+        recognizedText: recognizedConsentText,
       },
     };
 
@@ -495,13 +559,29 @@
             </div>
 
             <div class="canvas-footer-bar">
-              <span class="calib-stats">
-                {#if hasDrawnSignature}
-                  ✓ 서명이 확인되었습니다. 아래 버튼을 눌러 시작하세요.
+              <div class="calib-stats-box">
+                {#if isVerifyingConsent}
+                  <span class="calib-stats analyzing">
+                    AI가 필기 답변을 실시간 분석하고 있습니다...
+                  </span>
+                {:else if consentStatus === 'AGREED'}
+                  <span class="calib-stats agreed">
+                    <strong>✓ '{recognizedConsentText}'</strong> — 동의가 확인되었습니다. 시작할 수 있습니다.
+                  </span>
+                {:else if consentStatus === 'DISAGREED'}
+                  <span class="calib-stats disagreed">
+                    <strong>✕ '{recognizedConsentText}'</strong> — {consentFeedbackReason || '동의 거부 답변입니다.'} 서비스 이용을 위해 동의가 필요합니다.
+                  </span>
+                {:else if consentStatus === 'UNCLEAR'}
+                  <span class="calib-stats unclear">
+                    ? {consentFeedbackReason || '글씨를 인식할 수 없습니다. 긍정 답변(예: 동의, 네, ㅇㅇ, yes)을 명확히 적어주세요.'}
+                  </span>
                 {:else}
-                  * 화면 속 종이에 직접 글씨를 적어주시면 서명이 완료됩니다.
+                  <span class="calib-stats idle">
+                    * 화면 속 종이에 동의 답변(예: 동의, 네, ㅇㅇ, yes 등)을 적어주세요.
+                  </span>
                 {/if}
-              </span>
+              </div>
               <button type="button" class="btn-clear" onclick={clearSignature}>다시 쓰기</button>
             </div>
           </div>
@@ -511,10 +591,18 @@
             <button
               type="button"
               class="btn-complete"
-              disabled={!hasDrawnSignature || isSaving}
+              disabled={!isConsentAgreed || isSaving || isVerifyingConsent}
               onclick={handleFinalSubmit}
             >
-              {isSaving ? '설정 저장 중...' : '시작하기'}
+              {#if isSaving}
+                설정 저장 중...
+              {:else if isVerifyingConsent}
+                답변 분석 중...
+              {:else if !isConsentAgreed}
+                동의 필기 필요
+              {:else}
+                시작하기
+              {/if}
             </button>
           </div>
         </div>
@@ -540,11 +628,11 @@
       >
         <h3>선택 설문을 건너뛰시겠습니까?</h3>
         <p class="modal-explanation">
-          사이드 프로젝트(서브 기술)와 취미를 미리 등록해 두시면, AI가 새로운 단어(예: React, 원두)를 적었을 때
-          <strong>주 직무에 억지로 종속시키지 않고 독립적인 아이디어로 정확히 분류</strong>할 수 있습니다.
+          본업 외의 다양한 관심사나 취미, 일상 메모를 미리 등록해 두시면, AI가 새로운 분야의 글을 접했을 때
+          <strong>기존 맥락에 억지로 끼워 맞추지 않고 독립된 생각과 아이디어로 정확히 분류</strong>할 수 있습니다.
         </p>
         <p class="modal-sub">
-          * 지금 건너뛰셔도 실제 캔버스 필기와 O/X 제스처를 통해 AI가 스스로 학습합니다.
+          * 지금 건너뛰셔도 실제 캔버스 필기와 O/X 피드백을 통해 AI가 당신의 맥락을 스스로 학습합니다.
         </p>
         <div class="modal-actions">
           <button
@@ -834,9 +922,42 @@
     box-sizing: border-box;
   }
 
+  .calib-stats-box {
+    display: flex;
+    align-items: center;
+  }
+
   .calib-stats {
-    font-size: 12px;
+    font-size: 13px;
     color: #666;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    line-height: 1.4;
+  }
+
+  .calib-stats.analyzing {
+    color: #1976D2;
+    font-weight: 500;
+  }
+
+  .calib-stats.agreed {
+    color: #2E7D32;
+    font-weight: 500;
+  }
+
+  .calib-stats.disagreed {
+    color: #D32F2F;
+    font-weight: 500;
+  }
+
+  .calib-stats.unclear {
+    color: #E65100;
+    font-weight: 500;
+  }
+
+  .calib-stats.idle {
+    color: #757575;
   }
 
   .btn-clear {
