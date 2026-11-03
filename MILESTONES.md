@@ -1,4 +1,4 @@
-# 잇적 (It!note) — 무맥락(Zero-Context) 에이전트 실행용 3단계 마일스톤 명세서
+﻿# 잇적 (It!note) — 무맥락(Zero-Context) 에이전트 실행용 3단계 마일스톤 명세서
 
 > [!IMPORTANT]
 > **새 세션 에이전트(Flash 등) 필수 숙지 사항**
@@ -63,7 +63,7 @@
     * 펜 입력 후 25초 시점에 추가 펜 입력 시 30초 대기 타이머가 정상 리셋되는지 검증
     * 30초 대기 + 60초 증발 만료 시점에 최소 바운딩 박스 크롭 이미지 이벤트가 정상 방출되는지 검증
     * AI 문장 위 O 획 입력 시 해당 문장이 흡수(`isConfirmed = true`) 상태로 전이되는지 검증
-  - [ ] `npm test -- --run` 실행으로 테스트 100% 통과 확인
+  - [x] `npm test -- --run` 실행으로 테스트 100% 통과 확인
 
 ### 1차 점검 제출 증빙 가이드 (3단계 확인법)
 1. **이번에 만든 것**: Svelte 5 기반 Zero-UI 스타일러스 캔버스, 증발하는 잉크 타이머 엔진, 한글 획순 대필 애니메이션 및 O/X 기하학 제스처 인식기.
@@ -138,7 +138,7 @@
   - [ ] `apps/server/src/__tests__/jevAdapter.test.ts`: Jev 원시 응답 및 Gemini Structured Fallback의 `JevDecisionResult` 스키마 일치성 테스트
   - [ ] `apps/server/src/__tests__/continuity.test.ts`: 직전 증발 키워드 맥락 존재 시 `isContinuousWithPrevious (Noul)` 처리 및 프롬프트 결합 로직 검증
   - [ ] `apps/server/src/__tests__/rejectionRefinement.test.ts`: `rejectedHypotheses`에 담긴 문장이 다음 생성 프롬프트의 금지 제약(Negative Constraint)으로 정확히 주입되는지 검증
-  - [ ] `npm test -- --run` 실행으로 테스트 100% 통과 확인
+  - [x] `npm test -- --run` 실행으로 테스트 100% 통과 확인
 
 ### 2차 점검 제출 증빙 가이드 (3단계 확인법)
 1. **이번에 만든 것**: Hono 기반 무상태 추론 백엔드(`/api/infer`), System 1(`Jev` 타입 판별) + System 2(단일 문장 대필) 파이프라인, 취소선 의도(`THOUGHT_PIVOT`) 해석 및 `X` 마킹 오답 배제 재추론 루프.
@@ -164,20 +164,20 @@
 **목표**: 최초 1회 소셜 로그인 후 다음 접속부터는 곧바로 백지 캔버스만 뜨는 자동 로그인, 온보딩(프로필 + 7일 드래그 시간표), `O`를 칠수록 본인 정보 맥락이 휘발되지 않고 단단해지는 누적기, PG사 결제 검증 및 단일 `Dockerfile` 배포를 완성합니다.
 
 ### 구현 체크리스트 (Milestone 3)
-- [ ] **Step 3-1: 소셜 로그인(OAuth 2.0 + 자동 로그인 세션) 및 온보딩 UI**
-  - [ ] `apps/server/src/routes/auth.ts`: 카카오 / 구글 OAuth 2.0 인증 콜백 및 `HttpOnly` 장기 세션 토큰(자동 로그인) 발급 라우트 구현 (로컬/심사 환경에서 클릭 한 번으로 즉시 체험 가능한 '데모 계정 원클릭 자동 로그인' 병행 지원)
-  - [ ] `LoginView.svelte`: 자동 로그인 기본 활성화. 세션이 유효하면 로그인 화면을 0초 만에 건너뛰고 즉시 `PaperCanvas.svelte`만 렌더링
-  - [ ] `ProfileSetup.svelte` & `RoutineMatrix.svelte`: 직무/관심사 입력 및 마우스·펜 드래그로 색칠하는 7일(월-일) x 타임블록 루틴 매트릭스 구현
-- [ ] **Step 3-2: 휘발되지 않는 본인 정보 맥락 진화기 (`profileEnricher.ts`)**
-  - [ ] `apps/server/src/services/profileEnricher.ts`: 사용자가 AI 문장에 동그라미(`O`)를 쳐서 확정(`POST /api/notes/confirm`)할 때마다, 문장 내 핵심 토픽·고유명사·작업 맥락을 추출해 사용자의 `EvolvingContext` (`ongoingTopics`, `domainVocabulary`)에 병합 업데이트
-  - [ ] `DeskView.svelte` (`/desk` 관리 화면): 워터마크 펜 더블탭+홀드로 진입 시 1) 흡수된 확정 노트 목록, 2) 지금까지 자동으로 단단해진 '내 진화 맥락 태그'(직접 수정/삭제 가능), 3) 시간표 수정 화면을 일반 마우스/키보드 UI로 제공
-- [ ] **Step 3-3: PG사 결제 연동 및 단일 컨테이너(`Dockerfile`) 배포**
-  - [ ] `PaymentModal.svelte` & `apps/server/src/routes/billing.ts`: 토스페이먼츠(또는 포트원 V2) 테스트 결제창 호출, 백엔드 결제 승인 금액 위변조 검증 및 Webhook 멱등성(Idempotency Key) 처리 구현
-  - [ ] 루트 `Dockerfile` 작성: Multi-stage 빌드(`apps/web` 정적 빌드 산출물을 `apps/server` Hono가 서빙)로 단일 컨테이너 패키징 및 배포 URL 확보
-- [ ] **Step 3-4: Vitest 인증·결제·누적기 통합 테스트 작성 및 검증**
-  - [ ] `apps/server/src/__tests__/profileEnricher.test.ts`: `O` 확정 문장에서 키워드 추출 및 중복 없는 맥락 병합 로직 검증
-  - [ ] `apps/server/src/__tests__/billingWebhook.test.ts`: PG 웹훅 동일 이벤트 중복 수신 시 멱등성(Idempotency) 방어 테스트
-  - [ ] `npm test -- --run` 실행으로 전체 테스트 100% 통과 확인
+- [x] **Step 3-1: 소셜 로그인(OAuth 2.0 + 자동 로그인 세션) 및 온보딩 UI**
+  - [x] `apps/server/src/routes/auth.ts`: 카카오 / 구글 OAuth 2.0 인증 콜백 및 `HttpOnly` 장기 세션 토큰(자동 로그인) 발급 라우트 구현 (로컬/심사 환경에서 클릭 한 번으로 즉시 체험 가능한 '데모 계정 원클릭 자동 로그인' 병행 지원)
+  - [x] `LoginView.svelte`: 자동 로그인 기본 활성화. 세션이 유효하면 로그인 화면을 0초 만에 건너뛰고 즉시 `PaperCanvas.svelte`만 렌더링
+  - [x] `ProfileSetup.svelte` & `RoutineMatrix.svelte`: 직무/관심사 입력 및 마우스·펜 드래그로 색칠하는 7일(월-일) x 타임블록 루틴 매트릭스 구현
+- [x] **Step 3-2: 휘발되지 않는 본인 정보 맥락 진화기 (`profileEnricher.ts`)**
+  - [x] `apps/server/src/services/profileEnricher.ts`: 사용자가 AI 문장에 동그라미(`O`)를 쳐서 확정(`POST /api/notes/confirm`)할 때마다, 문장 내 핵심 토픽·고유명사·작업 맥락을 추출해 사용자의 `EvolvingContext` (`ongoingTopics`, `domainVocabulary`)에 병합 업데이트
+  - [x] `DeskView.svelte` (`/desk` 관리 화면): 워터마크 펜 더블탭+홀드로 진입 시 1) 흡수된 확정 노트 목록, 2) 지금까지 자동으로 단단해진 '내 진화 맥락 태그'(직접 수정/삭제 가능), 3) 시간표 수정 화면을 일반 마우스/키보드 UI로 제공
+- [x] **Step 3-3: PG사 결제 연동 및 단일 컨테이너(`Dockerfile`) 배포**
+  - [x] `PaymentModal.svelte` & `apps/server/src/routes/billing.ts`: 토스페이먼츠(또는 포트원 V2) 테스트 결제창 호출, 백엔드 결제 승인 금액 위변조 검증 및 Webhook 멱등성(Idempotency Key) 처리 구현
+  - [x] 루트 `Dockerfile` 작성: Multi-stage 빌드(`apps/web` 정적 빌드 산출물을 `apps/server` Hono가 서빙)로 단일 컨테이너 패키징 및 배포 URL 확보
+- [x] **Step 3-4: Vitest 인증·결제·누적기 통합 테스트 작성 및 검증**
+  - [x] `apps/server/src/__tests__/profileEnricher.test.ts`: `O` 확정 문장에서 키워드 추출 및 중복 없는 맥락 병합 로직 검증
+  - [x] `apps/server/src/__tests__/billingWebhook.test.ts`: PG 웹훅 동일 이벤트 중복 수신 시 멱등성(Idempotency) 방어 테스트
+  - [x] `npm test -- --run` 실행으로 전체 테스트 100% 통과 확인
 
 ### 최종 제출 증빙 가이드 (3단계 확인법)
 1. **이번에 만든 것**: OAuth 소셜 자동 로그인, 7일 드래그 시간표 온보딩, `O` 확정 기반 본인 정보 맥락 누적기(`profileEnricher`), PG 결제 승인/웹훅 검증 모듈, 단일 Docker 컨테이너 배포.
