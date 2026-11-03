@@ -8,8 +8,8 @@ import { getGeminiClient } from './geminiClient';
 
 // ponytail: official @google/genai SDK with structured output
 
-const AFFIRMATIVE_REGEX = /^(동의|동의함|동의합니다|동의해요|네|예|ㅇㅇ|ㅇ|yes|y|ok|okay|sure|agree|agreed|좋아요|좋아|확인|승인|수락|찬성)$/i;
-const DISAGREE_REGEX = /^(아니오|아니요|아니|거부|거절|싫어|싫어요|ㄴㄴ|ㄴ|no|nope|disagree|reject|반대|안해|취소)$/i;
+const AFFIRMATIVE_REGEX = /^(동의|동의함|동의합니다|동의해요|네|예|ㅇㅇ|ㅇ|yes|y|ok|okay|sure|agree|agreed|좋아요|좋아|확인|승인|수락|찬성|o)$/i;
+const DISAGREE_REGEX = /^(아니오|아니요|아니|거부|거절|싫어|싫어요|ㄴㄴ|ㄴ|no|nope|disagree|reject|반대|안해|취소|x)$/i;
 
 /**
  * 필기 자필 서약 긍정/동의 여부 검증 서비스
@@ -67,11 +67,15 @@ The user was asked the question: "개인정보 및 필기 데이터 활용에 �
 Examine the user's handwritten response in the image.
 
 Tasks:
-1. Transcribe the handwriting as accurately as possible into Korean or English (e.g. "동의", "동의함", "동의합니다", "네", "ㅇㅇ", "yes", "거부", "아니오", "ㄴ", "ㄴㄴ", etc.).
+1. Transcribe the handwriting as accurately as possible into Korean or English (e.g. "동의", "동의함", "동의합니다", "네", "ㅇㅇ", "yes", "거부", "아니오", "ㄴ", "ㄴㄴ", "O", "X", etc.).
 2. Determine whether the user's answer is an affirmative agreement/consent to the question.
-   - Affirmative consent ("AGREED"): "네", "예", "동의", "동의함", "동의합니다", "동의해요", "ㅇㅇ", "ㅇ", "yes", "y", "ok", "okay", "sure", "agree", "좋아요", "확인", "승인", "수락"
-   - Rejection / refusal ("DISAGREED"): "아니오", "아니요", "아니", "거부", "거절", "싫어", "싫어요", "ㄴㄴ", "ㄴ", "no", "nope", "disagree", "안해", "반대"
-   - Unclear / scribble ("UNCLEAR"): Random scribbles, scratches, single meaningless lines, emojis, geometric shapes, or completely unrelated words.`;
+   - Affirmative consent ("AGREED"): "네", "예", "동의", "동의함", "동의합니다", "동의해요", "ㅇㅇ", "ㅇ", "yes", "y", "ok", "okay", "sure", "agree", "좋아요", "확인", "승인", "수락", "O" (동그라미)
+   - Rejection / refusal ("DISAGREED"): "아니오", "아니요", "아니", "거부", "거절", "싫어", "싫어요", "ㄴㄴ", "ㄴ", "no", "nope", "disagree", "안해", "반대", "X" (엑스표)
+   - Unclear / scribble ("UNCLEAR"): Random scribbles, scratches, single meaningless lines, emojis, geometric shapes, or completely unrelated words.
+3. Write "reason" strictly in polite, concise Korean (한국어 1문장, 영어 절대 금지):
+   - Example for AGREED: "동의 의사가 확인되었습니다."
+   - Example for DISAGREED: "'아니오' 또는 거부 의사로 확인되었습니다."
+   - Example for UNCLEAR: "글씨를 명확히 알아보기 어렵습니다."`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-flash-lite',
@@ -105,12 +109,23 @@ Tasks:
         ? parsed.sentiment
         : 'UNCLEAR';
 
+    let reason = parsed.reason ? String(parsed.reason).trim() : undefined;
+    if (reason && /[a-zA-Z]{3,}/.test(reason)) {
+      if (sentiment === 'DISAGREED') {
+        reason = `'${parsed.recognizedText || '거부'}' 의사로 확인되었습니다.`;
+      } else if (sentiment === 'AGREED') {
+        reason = `'${parsed.recognizedText || '동의'}' 의사가 확인되었습니다.`;
+      } else {
+        reason = '글씨를 명확히 판별하기 어렵습니다.';
+      }
+    }
+
     return {
       isAgreed: sentiment === 'AGREED',
       recognizedText: String(parsed.recognizedText || '').trim(),
       sentiment,
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.9,
-      reason: parsed.reason ? String(parsed.reason) : undefined,
+      reason,
     };
   } catch {
     return null;

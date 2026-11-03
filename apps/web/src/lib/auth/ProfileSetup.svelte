@@ -628,7 +628,7 @@
 
             <div class="canvas-watermark-guide">
               {#if !hasDrawnSignature}
-                <span class="guide-text">종이 위에 당신의 답을 자유롭게 적어주세요</span>
+                <span class="guide-text">종이 위에 당신의 답(동의, 네, O 등)을 자유롭게 적어주세요</span>
               {/if}
             </div>
 
@@ -644,15 +644,15 @@
                   </span>
                 {:else if consentStatus === 'DISAGREED'}
                   <span class="calib-stats disagreed">
-                    <strong>✕ '{recognizedConsentText}'</strong> — {consentFeedbackReason || '동의 거부 답변입니다.'} 서비스 이용을 위해 동의가 필요합니다.
+                    <strong>✕ '{recognizedConsentText}'</strong> — {consentFeedbackReason || '동의하지 않는 답변입니다.'} 서비스 시작을 위해 동의가 필요합니다.
                   </span>
                 {:else if consentStatus === 'UNCLEAR'}
                   <span class="calib-stats unclear">
-                    ? {consentFeedbackReason || '글씨를 인식할 수 없습니다. 긍정 답변(예: 동의, 네, ㅇㅇ, yes)을 명확히 적어주세요.'}
+                    ? {consentFeedbackReason || '글씨를 인식할 수 없습니다. 긍정 답변(동의, 네, O 등)을 적어주세요.'}
                   </span>
                 {:else}
                   <span class="calib-stats idle">
-                    * 화면 속 종이에 동의 답변(예: 동의, 네, ㅇㅇ, yes 등)을 적어주세요.
+                    * 화면 속 종이에 동의 답변(동의, 네, O 등)을 적어주세요.
                   </span>
                 {/if}
               </div>
