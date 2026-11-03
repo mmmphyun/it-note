@@ -11,43 +11,56 @@
   const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-  // 빠른 조회를 위한 boolean matrix [day][hour]
-  let activeGrid = $state<boolean[][]>(
-    Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => false))
+  const CATEGORIES = [
+    { id: 'DEVELOPMENT', label: '개발 / 코딩', color: '#385E72' },
+    { id: 'DESIGN', label: '기획 / 설계', color: '#3E7B68' },
+    { id: 'RESEARCH', label: '학습 / 연구', color: '#C27D38' },
+    { id: 'ERASER', label: '지우개 (비우기)', color: '#FFFFFF' },
+  ] as const;
+
+  let selectedCategory = $state<string>('개발 / 코딩');
+
+  // 셀별 라벨 매트릭스 [day][hour] (null이면 미지정)
+  let labelGrid = $state<(string | null)[][]>(
+    Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => null))
   );
 
   // 초기 routineSlots 반영
   $effect(() => {
-    const grid = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => false));
+    const grid: (string | null)[][] = Array.from({ length: 7 }, () =>
+      Array.from({ length: 24 }, () => null)
+    );
     for (const slot of routineSlots) {
       const d = slot.dayOfWeek;
+      const lbl = slot.label || '개발 / 코딩';
       for (let h = slot.startHour; h < slot.endHour; h++) {
         if (grid[d] && h >= 0 && h < 24) {
-          grid[d][h] = true;
+          grid[d][h] = lbl;
         }
       }
     }
-    activeGrid = grid;
+    labelGrid = grid;
   });
 
   let isDragging = $state(false);
-  let dragMode = $state<boolean>(true); // true: 활성화, false: 비활성화
 
-  function toggleCell(day: number, hour: number, forceValue?: boolean) {
-    const nextVal = forceValue !== undefined ? forceValue : !activeGrid[day][hour];
-    activeGrid[day][hour] = nextVal;
+  function applyCell(day: number, hour: number) {
+    if (selectedCategory === '지우개 (비우기)') {
+      labelGrid[day][hour] = null;
+    } else {
+      labelGrid[day][hour] = selectedCategory;
+    }
     emitChange();
   }
 
   function handlePointerDown(day: number, hour: number) {
     isDragging = true;
-    dragMode = !activeGrid[day][hour];
-    toggleCell(day, hour, dragMode);
+    applyCell(day, hour);
   }
 
   function handlePointerEnter(day: number, hour: number) {
     if (isDragging) {
-      toggleCell(day, hour, dragMode);
+      applyCell(day, hour);
     }
   }
 
@@ -56,37 +69,90 @@
   }
 
   function emitChange() {
-    // grid -> RoutineSlot[] 변환 (연속된 시간대 병합)
+    // grid -> RoutineSlot[] 변환 (동일 요일, 동일 라벨 연속 구간 병합)
     const newSlots: RoutineSlot[] = [];
     for (let d = 0; d < 7; d++) {
+      let currentLabel: string | null = null;
       let start: number | null = null;
+
       for (let h = 0; h < 24; h++) {
-        if (activeGrid[d][h]) {
-          if (start === null) start = h;
+        const cellLabel = labelGrid[d][h];
+        if (cellLabel !== null) {
+          if (start === null) {
+            start = h;
+            currentLabel = cellLabel;
+          } else if (cellLabel !== currentLabel) {
+            newSlots.push({
+              dayOfWeek: d,
+              startHour: start,
+              endHour: h,
+              label: currentLabel!,
+            });
+            start = h;
+            currentLabel = cellLabel;
+          }
         } else {
           if (start !== null) {
-            newSlots.push({ dayOfWeek: d, startHour: start, endHour: h, label: '집중 시간' });
+            newSlots.push({
+              dayOfWeek: d,
+              startHour: start,
+              endHour: h,
+              label: currentLabel!,
+            });
             start = null;
+            currentLabel = null;
           }
         }
       }
       if (start !== null) {
-        newSlots.push({ dayOfWeek: d, startHour: start, endHour: 24, label: '집중 시간' });
+        newSlots.push({
+          dayOfWeek: d,
+          startHour: start,
+          endHour: 24,
+          label: currentLabel!,
+        });
       }
     }
     onChange(newSlots);
+  }
+
+  function getCellColor(label: string | null): string {
+    if (!label) return 'transparent';
+    const cat = CATEGORIES.find((c) => c.label === label);
+    return cat ? cat.color : '#385E72';
   }
 </script>
 
 <svelte:window onpointerup={handlePointerUp} />
 
 <div class="matrix-wrapper">
+  <!-- 카테고리 선택 팔레트 -->
+  <div class="palette-bar">
+    <span class="palette-title">작업 모드 브러시:</span>
+    <div class="palette-items">
+      {#each CATEGORIES as cat}
+        <button
+          type="button"
+          class="palette-chip"
+          class:active={selectedCategory === cat.label}
+          onclick={() => (selectedCategory = cat.label)}
+        >
+          <span
+            class="color-dot"
+            style="background: {cat.color}; border: {cat.id === 'ERASER' ? '1px dashed #999' : 'none'}"
+          ></span>
+          <span>{cat.label}</span>
+        </button>
+      {/each}
+    </div>
+  </div>
+
   <div class="matrix-instructions">
-    <span>💡 펜 또는 마우스로 드래그하여 주간 집중 작업 시간대를 지정하세요.</span>
+    <span>💡 위 브러시를 선택한 후, 마우스나 펜으로 긁어 주간 작업 루틴을 색칠하세요.</span>
   </div>
 
   <div class="matrix-grid">
-    <!-- 헤더 행: 시간 라벨 (4시간 간격 요약) -->
+    <!-- 헤더 행: 시간 라벨 -->
     <div class="row header-row">
       <div class="day-label corner">요일</div>
       {#each HOURS as hour}
@@ -107,12 +173,13 @@
             role="button"
             tabindex="0"
             class="matrix-cell"
-            class:active={activeGrid[dayIndex][hour]}
+            style="background-color: {getCellColor(labelGrid[dayIndex][hour])};"
+            title="{DAYS[dayIndex]}요일 {hour}시: {labelGrid[dayIndex][hour] || '비어 있음'}"
             onpointerdown={() => handlePointerDown(dayIndex, hour)}
             onpointerenter={() => handlePointerEnter(dayIndex, hour)}
             onkeydown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
-                toggleCell(dayIndex, hour);
+                applyCell(dayIndex, hour);
               }
             }}
           ></div>
@@ -129,9 +196,58 @@
     touch-action: none;
   }
 
-  .matrix-instructions {
+  .palette-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .palette-title {
     font-size: 13px;
-    color: #666;
+    font-weight: 600;
+    color: #444;
+  }
+
+  .palette-items {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .palette-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    background: #FFF;
+    color: #333;
+    transition: all 0.15s ease;
+  }
+  .palette-chip:hover {
+    background: #F8F8F8;
+  }
+  .palette-chip.active {
+    border-color: #1A1A1A;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
+  }
+
+  .color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .matrix-instructions {
+    font-size: 12px;
+    color: #777;
     margin-bottom: 12px;
   }
 
@@ -197,12 +313,5 @@
   }
   .matrix-cell:last-child {
     border-right: none;
-  }
-
-  .matrix-cell.active {
-    background-color: #385E72;
-  }
-  .matrix-cell:not(.active):hover {
-    background-color: rgba(56, 94, 114, 0.12);
   }
 </style>

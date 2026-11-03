@@ -69,6 +69,26 @@ describe('Billing & Webhook Idempotency Integration', () => {
     const statusData = await statusRes.json();
     expect(statusData.status.plan).toBe('pro');
     expect(statusData.status.isActive).toBe(true);
+
+    // 4. 결제 취소 및 전액 환불 요청 검증
+    const refundRes = await app.request('/api/billing/refund', {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        orderId,
+        cancelReason: '단순 변심 테스트 환불',
+      }),
+    });
+    expect(refundRes.status).toBe(200);
+    const refundData = await refundRes.json();
+    expect(refundData.success).toBe(true);
+    expect(refundData.plan).toBe('free');
+
+    // 5. 환불 후 상태 조회 시 Free 플랜 원복 확인
+    const postRefundStatusRes = await app.request('/api/billing/status', { headers: authHeaders });
+    const postRefundData = await postRefundStatusRes.json();
+    expect(postRefundData.status.plan).toBe('free');
+    expect(postRefundData.status.status).toBe('REFUNDED');
   });
 
   it('POST /api/billing/webhook — 동일한 Idempotency Key 중복 수신 시 멱등성을 방어한다', async () => {

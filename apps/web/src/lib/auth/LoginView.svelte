@@ -29,11 +29,12 @@
     }
   });
 
-  async function handleDemoLogin() {
+  async function handleDemoLogin(fresh = false) {
     isLoading = true;
     errorMessage = null;
     try {
-      const res = await fetch('/api/auth/demo', { method: 'POST' });
+      const url = fresh ? '/api/auth/demo?fresh=1' : '/api/auth/demo';
+      const res = await fetch(url, { method: 'POST' });
       if (!res.ok) throw new Error('데모 로그인 처리에 실패했습니다.');
       const data = await res.json();
       onLoginSuccess(data.session);
@@ -71,10 +72,16 @@
       {/if}
 
       <div class="auth-buttons">
-        <!-- 심사위원 및 평가 데모 원클릭 로그인 -->
-        <button class="btn btn-demo" onclick={handleDemoLogin}>
+        <!-- 1. 신규 사용자 온보딩 체험 (직무/관심사 + 7일 시간표 설정) -->
+        <button class="btn btn-fresh" onclick={() => handleDemoLogin(true)}>
+          <span class="btn-icon">🌱</span>
+          <span class="btn-text">신규 온보딩부터 시작 (프로필/시간표 입력)</span>
+        </button>
+
+        <!-- 2. 기존 설정 계정으로 0초 캔버스 직행 -->
+        <button class="btn btn-demo" onclick={() => handleDemoLogin(false)}>
           <span class="btn-icon">⚡</span>
-          <span class="btn-text">심사 데모 계정으로 즉시 체험 (원클릭)</span>
+          <span class="btn-text">기존 프로필로 즉시 시작 (0초 캔버스 직행)</span>
         </button>
 
         <div class="divider">
@@ -202,6 +209,14 @@
     cursor: pointer;
     transition: all 0.15s ease;
     border: 1px solid transparent;
+  }
+
+  .btn-fresh {
+    background: #385E72;
+    color: #FAF8F5;
+  }
+  .btn-fresh:hover {
+    background: #2D4C5D;
   }
 
   .btn-demo {

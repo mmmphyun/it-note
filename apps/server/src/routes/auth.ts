@@ -84,16 +84,34 @@ export function getSession(sessionId: string | null): AuthSession | null {
  * 심사위원 및 로컬 환경에서 OAuth 외부 통신 없이 원클릭으로 세션을 발급받아 즉시 테스트 가능
  */
 authRoute.post('/demo', async (c) => {
+  const isFresh = c.req.query('fresh') === '1';
   const sessionId = generateSessionId();
   const expiresAt = Date.now() + SESSION_TTL_MS;
 
+  const profile: UserProfile = isFresh
+    ? {
+        id: `fresh-user-${Date.now()}`,
+        email: 'newuser@itnote.internal',
+        name: '신규 가입 사용자',
+        role: '', // role이 비어 있으므로 즉시 온보딩(ProfileSetup) 뷰로 전환
+        interests: [],
+        createdAt: Date.now(),
+      }
+    : { ...DEFAULT_DEMO_PROFILE };
+
+  const routine = isFresh ? [] : [...DEFAULT_DEMO_ROUTINE];
+
   const session: AuthSession = {
     sessionId,
-    user: { ...DEFAULT_DEMO_PROFILE },
+    user: profile,
     expiresAt,
   };
 
   sessionStore.set(sessionId, session);
+  userStore.set(profile.id, {
+    profile,
+    routine,
+  });
 
   setCookie(c, SESSION_COOKIE_NAME, sessionId, {
     httpOnly: true,
@@ -103,12 +121,10 @@ authRoute.post('/demo', async (c) => {
     maxAge: Math.floor(SESSION_TTL_MS / 1000),
   });
 
-  const stored = userStore.get(DEFAULT_DEMO_USER_ID);
-
   return c.json({
     success: true,
     session,
-    routine: stored?.routine ?? DEFAULT_DEMO_ROUTINE,
+    routine,
   });
 });
 

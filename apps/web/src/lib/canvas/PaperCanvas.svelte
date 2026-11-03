@@ -145,14 +145,15 @@
   }
 
   function handleWatermarkPointerDown(e: PointerEvent) {
-    // 펜촉 전용 하드가드: touch 및 mouse는 워터마크 트리거 100% 무시
-    if (e.pointerType !== 'pen') return;
+    // 손날(touch) 오작동 방지: 터치 입력은 무시하고 스타일러스 펜(pen)과 PC 마우스(mouse) 허용
+    if (e.pointerType === 'touch') return;
 
     const now = performance.now();
     const isDoubleTap = now - lastWatermarkTapTime < 400;
     lastWatermarkTapTime = now;
 
     if (isDoubleTap) {
+      // 400ms 이내 더블탭(클릭) 후 800ms 홀드 시 데스크로 전환
       watermarkHoldTimer = setTimeout(() => {
         onOpenDesk?.();
       }, 800);

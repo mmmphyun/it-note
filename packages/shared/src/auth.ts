@@ -38,9 +38,14 @@ export type BillingPlan = 'free' | 'pro';
 export interface BillingStatus {
   plan: BillingPlan;
   isActive: boolean;
+  status?: 'PAID' | 'REFUNDED';
   orderId?: string;
+  paymentKey?: string;
+  method?: string;
   paidAt?: number;
+  refundedAt?: number;
   amount?: number;
+  cancelReason?: string;
 }
 
 export interface PaymentConfirmRequest {
@@ -55,4 +60,19 @@ export interface PaymentConfirmResponse {
   plan: BillingPlan;
   paidAt: number;
   amount: number;
+  paymentKey: string;
+  method: string;
+}
+
+export interface RefundRequest {
+  orderId: string;
+  cancelReason: string;
+}
+
+export interface RefundResponse {
+  success: boolean;
+  orderId: string;
+  plan: BillingPlan;
+  refundedAt: number;
+  cancelReason: string;
 }

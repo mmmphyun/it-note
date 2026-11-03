@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { ConfirmedNote, EvolvingContext, RoutineSlot, BillingStatus } from '@itnote/shared';
+  import type { ConfirmedNote, EvolvingContext, RoutineSlot, BillingStatus, UserProfile } from '@itnote/shared';
   import RoutineMatrix from '../auth/RoutineMatrix.svelte';
   import PaymentModal from '../billing/PaymentModal.svelte';
 
@@ -12,7 +12,7 @@
 
   let { confirmedNotes, onBackToCanvas, onLogout }: Props = $props();
 
-  let activeTab = $state<'notes' | 'context' | 'routine' | 'billing'>('notes');
+  let activeTab = $state<'notes' | 'context' | 'routine' | 'profile' | 'billing'>('notes');
   let evolvingContext = $state<EvolvingContext>({
     ongoingTopics: ['Svelte 5', 'Hono', 'Zero-UI', 'Pure Stylus'],
     domainVocabulary: ['PointerEvent', 'Shoelace', 'Idempotency'],
@@ -20,15 +20,25 @@
     recentConfirmedNotes: [],
   });
 
+  let userProfile = $state<UserProfile>({
+    id: '',
+    role: '',
+    interests: [],
+    createdAt: Date.now(),
+  });
+  let profileRoleInput = $state('');
+  let profileInterestsInput = $state('');
+
   let routineSlots = $state<RoutineSlot[]>([]);
   let billingStatus = $state<BillingStatus>({ plan: 'free', isActive: false });
   let isPaymentModalOpen = $state(false);
   let newTopicInput = $state('');
   let isSaving = $state(false);
+  let isRefunding = $state(false);
   let statusMessage = $state<string | null>(null);
 
   onMount(async () => {
-    await Promise.all([loadContext(), loadRoutine(), loadBilling()]);
+    await Promise.all([loadContext(), loadRoutine(), loadProfile(), loadBilling()]);
   });
 
   async function loadContext() {
@@ -50,6 +60,20 @@
         const data = await res.json();
         if (Array.isArray(data.routine)) {
           routineSlots = data.routine;
+        }
+      }
+    } catch {}
+  }
+
+  async function loadProfile() {
+    try {
+      const res = await fetch('/api/auth/session');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.authenticated && data.session) {
+          userProfile = data.session.user;
+          profileRoleInput = userProfile.role || '';
+          profileInterestsInput = (userProfile.interests || []).join(', ');
         }
       }
     } catch {}
@@ -126,6 +150,71 @@
     }
   }
 
+  async function handleSaveProfile(e: SubmitEvent) {
+    e.preventDefault();
+    isSaving = true;
+    const parsed = profileInterestsInput
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    try {
+      const res = await fetch('/api/auth/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: profileRoleInput, interests: parsed }),
+      });
+      if (!res.ok) throw new Error('프로필 저장에 실패했습니다.');
+      const data = await res.json();
+      userProfile = data.profile;
+      statusMessage = '프로필 페르소나가 성공적으로 저장되었습니다.';
+      setTimeout(() => (statusMessage = null), 3000);
+    } catch (err: any) {
+      statusMessage = err.message || '저장 실패';
+    } finally {
+      isSaving = false;
+    }
+  }
+
+  async function handleRefund() {
+    if (!confirm('정말로 Pro 멤버십을 취소하고 전액 환불을 진행하시겠습니까?')) {
+      return;
+    }
+
+    isRefunding = true;
+    try {
+      const res = await fetch('/api/billing/refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: billingStatus.orderId,
+          cancelReason: '고객 요청 전액 환불',
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || '환불 처리에 실패했습니다.');
+      }
+
+      const data = await res.json();
+      billingStatus = {
+        ...billingStatus,
+        plan: 'free',
+        isActive: false,
+        status: 'REFUNDED',
+        refundedAt: data.refundedAt,
+        cancelReason: data.cancelReason,
+      };
+      statusMessage = '결제가 성공적으로 취소 및 전액 환불되었습니다.';
+      setTimeout(() => (statusMessage = null), 4000);
+    } catch (err: any) {
+      alert(err.message || '환불 처리 중 오류가 발생했습니다.');
+    } finally {
+      isRefunding = false;
+    }
+  }
+
   async function handleLogoutClick() {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -138,12 +227,16 @@
     }
   }
 
-  function handlePaymentSuccess() {
+  function handlePaymentSuccess(data: any) {
     billingStatus = {
       plan: 'pro',
       isActive: true,
-      paidAt: Date.now(),
-      amount: 9900,
+      status: 'PAID',
+      orderId: data.orderId,
+      paymentKey: data.paymentKey,
+      method: data.method || '토스페이먼츠 (테스트 카드)',
+      paidAt: data.paidAt || Date.now(),
+      amount: data.amount || 9900,
     };
     statusMessage = 'Pro 플랜으로 성공적으로 업그레이드되었습니다!';
     setTimeout(() => (statusMessage = null), 4000);
@@ -163,6 +256,9 @@
         </button>
         <button class="tab-btn" class:active={activeTab === 'context'} onclick={() => (activeTab = 'context')}>
           진화 맥락
+        </button>
+        <button class="tab-btn" class:active={activeTab === 'profile'} onclick={() => (activeTab = 'profile')}>
+          내 프로필
         </button>
         <button class="tab-btn" class:active={activeTab === 'routine'} onclick={() => (activeTab = 'routine')}>
           주간 시간표
@@ -257,6 +353,38 @@
         </div>
       </section>
 
+    {:else if activeTab === 'profile'}
+      <section class="section">
+        <h2>사용자 정보 및 맥락 페르소나 설정</h2>
+        <p class="desc">
+          AI가 당신의 현재 역할과 전문 관심사를 기반으로 가장 적합한 단일 문장을 추론합니다.
+        </p>
+        <form class="profile-form" onsubmit={handleSaveProfile}>
+          <div class="form-group">
+            <label for="p-role">현재 직무 / 목표 페르소나</label>
+            <input
+              id="p-role"
+              type="text"
+              placeholder="예: DevSecOps 취준생, 풀스택 아키텍트"
+              bind:value={profileRoleInput}
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label for="p-interests">전문 연구 및 관심 기술 (쉼표 구분)</label>
+            <input
+              id="p-interests"
+              type="text"
+              placeholder="예: Svelte 5, Hono, 분산 시스템, Zero-UI"
+              bind:value={profileInterestsInput}
+            />
+          </div>
+          <button type="submit" class="btn btn-save" disabled={isSaving}>
+            {isSaving ? '저장 중...' : '프로필 페르소나 저장'}
+          </button>
+        </form>
+      </section>
+
     {:else if activeTab === 'routine'}
       <section class="section">
         <h2>7일 집중 루틴 시간표 수정</h2>
@@ -290,8 +418,49 @@
               Pro 플랜 업그레이드 (월 9,900원)
             </button>
           {:else}
-            <div class="paid-meta">
-              승인 주문: {billingStatus.orderId || 'PRO_SUBSCRIPTION'} · 결제 금액: 9,900원
+            <!-- 결제 영수증 상세 내역 -->
+            <div class="receipt-box">
+              <h4>결제 영수증 상세</h4>
+              <div class="receipt-row">
+                <span class="r-label">주문 번호:</span>
+                <span class="r-value font-mono">{billingStatus.orderId}</span>
+              </div>
+              <div class="receipt-row">
+                <span class="r-label">결제 키(PG):</span>
+                <span class="r-value font-mono">{billingStatus.paymentKey || 'mock_toss_approved'}</span>
+              </div>
+              <div class="receipt-row">
+                <span class="r-label">결제 수단:</span>
+                <span class="r-value">{billingStatus.method || '토스페이먼츠 (테스트 카드)'}</span>
+              </div>
+              <div class="receipt-row">
+                <span class="r-label">승인 시각:</span>
+                <span class="r-value">{new Date(billingStatus.paidAt || Date.now()).toLocaleString()}</span>
+              </div>
+              <div class="receipt-row">
+                <span class="r-label">결제 금액:</span>
+                <span class="r-value highlight">9,900원 (정상 승인 완료)</span>
+              </div>
+
+              <div class="refund-action-area">
+                <button
+                  type="button"
+                  class="btn btn-refund"
+                  onclick={handleRefund}
+                  disabled={isRefunding}
+                >
+                  {isRefunding ? '환불 처리 중...' : '결제 취소 및 전액 환불 요청'}
+                </button>
+              </div>
+            </div>
+          {/if}
+
+          {#if billingStatus.status === 'REFUNDED'}
+            <div class="refund-history-box">
+              <span class="refund-badge">환불 완료</span>
+              <p>
+                주문 {billingStatus.orderId} 결제가 {new Date(billingStatus.refundedAt || Date.now()).toLocaleString()}에 전액 환불되었습니다.
+              </p>
             </div>
           {/if}
         </div>
@@ -543,6 +712,35 @@
     color: #AAA;
   }
 
+  .profile-form {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 500px;
+  }
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .form-group label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #444;
+  }
+  .form-group input {
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    font-size: 14px;
+  }
+  .btn-save {
+    align-self: flex-start;
+    background: #2B2B2B;
+    color: #FFF;
+    padding: 10px 20px;
+  }
+
   .saving-indicator {
     font-size: 12px;
     color: #385E72;
@@ -556,7 +754,7 @@
     background: #FAFAFA;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 20px;
   }
 
   .plan-badge {
@@ -590,8 +788,80 @@
     padding: 10px 18px;
   }
 
-  .paid-meta {
-    font-size: 12px;
+  .receipt-box {
+    background: #FFF;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .receipt-box h4 {
+    margin: 0 0 8px 0;
+    font-size: 15px;
+    font-weight: 700;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    padding-bottom: 8px;
+  }
+  .receipt-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+  }
+  .r-label {
     color: #777;
+  }
+  .r-value {
+    color: #222;
+    font-weight: 500;
+  }
+  .r-value.highlight {
+    color: #3182F6;
+    font-weight: 700;
+  }
+  .font-mono {
+    font-family: monospace;
+    font-size: 12px;
+  }
+
+  .refund-action-area {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed rgba(0, 0, 0, 0.1);
+    display: flex;
+    justify-content: flex-end;
+  }
+  .btn-refund {
+    background: #FFF;
+    color: #D32F2F;
+    border: 1px solid #D32F2F;
+    padding: 8px 16px;
+  }
+  .btn-refund:hover:not(:disabled) {
+    background: #FFEBEE;
+  }
+
+  .refund-history-box {
+    background: #FFF3E0;
+    border: 1px solid #FFE0B2;
+    border-radius: 8px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .refund-badge {
+    background: #E65100;
+    color: #FFF;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .refund-history-box p {
+    margin: 0;
+    font-size: 13px;
+    color: #5D4037;
   }
 </style>

@@ -122,7 +122,10 @@ billingRoute.post('/confirm', async (c) => {
   const status: BillingStatus = {
     plan: 'pro',
     isActive: true,
+    status: 'PAID',
     orderId: body.orderId,
+    paymentKey: body.paymentKey,
+    method: '토스페이먼츠 (테스트 카드)',
     paidAt: Date.now(),
     amount: body.amount,
   };
@@ -135,6 +138,67 @@ billingRoute.post('/confirm', async (c) => {
     plan: 'pro',
     paidAt: status.paidAt,
     amount: body.amount,
+    paymentKey: status.paymentKey,
+    method: status.method,
+  });
+});
+
+/**
+ * 3. 결제 취소 및 전액 환불 (POST /api/billing/refund)
+ */
+billingRoute.post('/refund', async (c) => {
+  const userId = getUserId(c);
+  const body = await c.req.json().catch(() => null);
+
+  const currentStatus = userBillingStore.get(userId);
+  if (!currentStatus || currentStatus.plan !== 'pro' || !currentStatus.orderId) {
+    return c.json({ error: 'No active paid subscription found', code: 'NO_ACTIVE_PAYMENT' }, 400);
+  }
+
+  const cancelReason = (body && body.cancelReason) || '고객 단순 변심 및 테스트 환불 요청';
+  const paymentKey = currentStatus.paymentKey;
+
+  // 실제 토스페이먼츠 시크릿 키가 있을 경우 결제 취소 API 호출
+  const tossSecretKey = process.env.TOSS_SECRET_KEY;
+  if (tossSecretKey && paymentKey && !paymentKey.startsWith('mock_')) {
+    try {
+      const basicAuth = Buffer.from(`${tossSecretKey}:`).toString('base64');
+      const response = await fetch(`https://api.tosspayments.com/v1/payments/${paymentKey}/cancel`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${basicAuth}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ cancelReason }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        return c.json({ error: 'PG사 결제 취소 거절', details: errorData }, 400);
+      }
+    } catch (err: any) {
+      return c.json({ error: 'PG 취소 통신 오류', message: err.message }, 502);
+    }
+  }
+
+  // 환불 완료 처리 및 Free 플랜으로 원복
+  const refundedStatus: BillingStatus = {
+    ...currentStatus,
+    plan: 'free',
+    isActive: false,
+    status: 'REFUNDED',
+    refundedAt: Date.now(),
+    cancelReason,
+  };
+  userBillingStore.set(userId, refundedStatus);
+
+  return c.json({
+    success: true,
+    orderId: currentStatus.orderId,
+    plan: 'free',
+    refundedAt: refundedStatus.refundedAt,
+    cancelReason,
+    message: '결제가 성공적으로 취소 및 전액 환불 처리되었습니다.',
   });
 });
 
