@@ -13,8 +13,8 @@ describe('consentVerifier: 필기 서약 동의 실시간 판정 검증', () => 
     }
   });
 
-  it('거부, 아니오, ㄴㄴ, no 등 부정적 답변을 DISAGREED로 판별하고 isAgreed를 false로 설정해야 한다', () => {
-    const negativeSamples = ['거부', '거절', '아니오', '아니요', '싫어요', 'ㄴㄴ', 'no'];
+  it('거부, 아니오, ㄴㄴ, ㄴ, no 등 부정적 답변을 DISAGREED로 판별하고 isAgreed를 false로 설정해야 한다', () => {
+    const negativeSamples = ['거부', '거절', '아니오', '아니요', '싫어요', 'ㄴㄴ', 'ㄴ', 'no'];
 
     for (const text of negativeSamples) {
       const result = evaluateTextSentiment(text);
@@ -56,5 +56,19 @@ describe('consentVerifier: 필기 서약 동의 실시간 판정 검증', () => 
     expect(body.isAgreed).toBe(true);
     expect(body.sentiment).toBe('AGREED');
     expect(body.recognizedText).toBe('동의함');
+  });
+
+  it('외부 AI가 연결되지 않은 임의의 획 입력은 임의로 동의 처리하지 않고 UNCLEAR를 반환해야 한다', async () => {
+    const origKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    try {
+      const result = await verifyConsent({
+        strokeMetadata: { strokeCount: 3 },
+      });
+      expect(result.isAgreed).toBe(false);
+      expect(result.sentiment).toBe('UNCLEAR');
+    } finally {
+      process.env.GEMINI_API_KEY = origKey;
+    }
   });
 });

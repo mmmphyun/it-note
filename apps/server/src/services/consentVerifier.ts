@@ -52,13 +52,13 @@ export async function verifyConsent(
 }
 
 /**
- * Gemini 2.5 Flash 기반 멀티모달 필기 인식 및 동의 의사 검증
+ * Gemini 3.1 Flash Lite 기반 멀티모달 필기 인식 및 동의 의사 검증
  */
 async function callGeminiConsentVerifier(
   imageBase64: string,
   apiKey: string
 ): Promise<ConsentVerificationResponse | null> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
 
   const base64Data = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
 
@@ -206,12 +206,12 @@ function fallbackHeuristicVerification(
     };
   }
 
-  // 최소 획수(2획 이상)가 존재할 경우 개발/오프라인 환경 기본 동의 허용
+  // 필기 획만으로는 긍정 동의 여부를 단정할 수 없으므로 안전하게 UNCLEAR 및 비동의 처리
   return {
-    isAgreed: true,
-    recognizedText: strokeCount > 5 ? '동의합니다' : '동의함',
-    sentiment: 'AGREED',
-    confidence: 0.85,
-    reason: '오프라인 서약 획수 기준 동의 확인됨.',
+    isAgreed: false,
+    recognizedText: '인식 불명',
+    sentiment: 'UNCLEAR',
+    confidence: 0.3,
+    reason: '필기 답변을 명확히 인식할 수 없습니다. 동의 답변(예: 동의, 네, yes)을 다시 적어주세요.',
   };
 }

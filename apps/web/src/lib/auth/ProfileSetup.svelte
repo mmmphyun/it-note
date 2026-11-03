@@ -172,12 +172,60 @@
       consentFeedbackReason = data.reason || '';
       isConsentAgreed = data.isAgreed;
     } catch {
-      // 오프라인이거나 통신 장애 시 기본 허용 폴백
-      consentStatus = 'AGREED';
-      recognizedConsentText = strokeCount > 5 ? '동의합니다' : '동의함';
-      isConsentAgreed = true;
+      consentStatus = 'UNCLEAR';
+      recognizedConsentText = '';
+      consentFeedbackReason = '서약 검증 통신 오류가 발생했습니다. 다시 작성해 주세요.';
+      isConsentAgreed = false;
     } finally {
       isVerifyingConsent = false;
+    }
+  }
+
+  // 다음 스텝으로 넘어갈 때 입력 필드 자동 포커스
+  function autoFocus(node: HTMLInputElement) {
+    setTimeout(() => {
+      node.focus();
+    }, 50);
+  }
+
+  // 스텝 전환 시 활성 input 요소 자동 포커스 이동
+  $effect(() => {
+    void currentStep;
+    setTimeout(() => {
+      const activeInput = document.querySelector<HTMLInputElement>(
+        '.onboarding-container input[type="text"]:not([disabled])'
+      );
+      if (activeInput) {
+        activeInput.focus();
+      }
+    }, 50);
+  });
+
+  // 전역 Enter 키 핸들러 (포커스가 벗어나 있어도 Enter 입력 시 즉시 다음 단계 진행)
+  function handleGlobalKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      if (isSkipModalOpen) return;
+      if (e.defaultPrevented) return;
+
+      if (currentStep === 1) {
+        if (role.trim()) {
+          e.preventDefault();
+          nextStep();
+        }
+      } else if (currentStep === 2) {
+        if (interestsString.trim()) {
+          e.preventDefault();
+          nextStep();
+        }
+      } else if (currentStep >= 3 && currentStep <= 6) {
+        e.preventDefault();
+        nextStep();
+      } else if (currentStep === 7) {
+        if (isConsentAgreed && !isSaving && !isVerifyingConsent) {
+          e.preventDefault();
+          handleFinalSubmit();
+        }
+      }
     }
   }
 
@@ -284,6 +332,8 @@
   }
 </script>
 
+<svelte:window onkeydown={handleGlobalKeyDown} />
+
 <div class="onboarding-root">
   <div class="onboarding-container">
     <!-- 상단 헤더 & 프로그레스 바 -->
@@ -335,11 +385,17 @@
           </p>
           <div class="input-area">
             <input
+              use:autoFocus
               type="text"
               class="large-input"
               placeholder="예: 대학생/취준생, 서비스 기획자, 디자이너, 마케터, 개발자, 작가, 프리랜서"
               bind:value={role}
-              onkeydown={(e) => e.key === 'Enter' && role.trim() && nextStep()}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (role.trim()) nextStep();
+                }
+              }}
             />
           </div>
           <div class="nav-row">
@@ -365,11 +421,17 @@
           </p>
           <div class="input-area">
             <input
+              use:autoFocus
               type="text"
               class="large-input"
               placeholder="예: UX 리서치, 브랜딩 전략, 자격증 시험공부, 데이터 분석, 시장 조사, 영상 편집"
               bind:value={interestsString}
-              onkeydown={(e) => e.key === 'Enter' && interestsString.trim() && nextStep()}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (interestsString.trim()) nextStep();
+                }
+              }}
             />
           </div>
           <div class="nav-row">
@@ -418,11 +480,17 @@
           </p>
           <div class="input-area">
             <input
+              use:autoFocus
               type="text"
               class="large-input"
               placeholder="예: 스마트스토어/이커머스, 소설/브런치 글쓰기, 앱 런칭, 유튜브 채널 운영, 주식/부동산 (쉼표 구분)"
               bind:value={subInterestsString}
-              onkeydown={(e) => e.key === 'Enter' && nextStep()}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  nextStep();
+                }
+              }}
             />
           </div>
           <div class="nav-row">
@@ -448,11 +516,17 @@
           </p>
           <div class="input-area">
             <input
+              use:autoFocus
               type="text"
               class="large-input"
               placeholder="예: 스페셜티 커피/원두, 클라이밍/필라테스, 미술관 관람, 여행 계획, 요리/맛집, 반려동물 (쉼표 구분)"
               bind:value={lifestyleHabitsString}
-              onkeydown={(e) => e.key === 'Enter' && nextStep()}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  nextStep();
+                }
+              }}
             />
           </div>
           <div class="nav-row">
