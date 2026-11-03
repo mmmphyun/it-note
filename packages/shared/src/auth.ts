@@ -92,7 +92,7 @@ export interface RefundResponse {
   cancelReason: string;
 }
 
-export type ConsentSentiment = 'AGREED' | 'DISAGREED' | 'UNCLEAR';
+export type ConsentSentiment = 'AGREED' | 'DISAGREED' | 'IRRELEVANT' | 'UNCLEAR';
 
 export interface ConsentVerificationRequest {
   imageBase64?: string;

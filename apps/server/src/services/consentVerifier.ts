@@ -67,15 +67,17 @@ The user was asked the question: "개인정보 및 필기 데이터 활용에 �
 Examine the user's handwritten response in the image.
 
 Tasks:
-1. Transcribe the handwriting as accurately as possible into Korean or English (e.g. "동의", "동의함", "동의합니다", "네", "ㅇㅇ", "yes", "거부", "아니오", "ㄴ", "ㄴㄴ", "O", "X", etc.).
-2. Determine whether the user's answer is an affirmative agreement/consent to the question.
-   - Affirmative consent ("AGREED"): "네", "예", "동의", "동의함", "동의합니다", "동의해요", "ㅇㅇ", "ㅇ", "yes", "y", "ok", "okay", "sure", "agree", "좋아요", "확인", "승인", "수락", "O" (동그라미)
-   - Rejection / refusal ("DISAGREED"): "아니오", "아니요", "아니", "거부", "거절", "싫어", "싫어요", "ㄴㄴ", "ㄴ", "no", "nope", "disagree", "안해", "반대", "X" (엑스표)
-   - Unclear / scribble ("UNCLEAR"): Random scribbles, scratches, single meaningless lines, emojis, geometric shapes, or completely unrelated words.
+1. Transcribe the handwriting as accurately as possible into Korean or English (e.g. "동의", "몰라", "네", "ㅇㅇ", "yes", "거부", "아니오", "ㄴ", "X", "O", etc.). If completely illegible scribble or scratch, set recognizedText to "".
+2. Classify the user's answer into ONE of the following 4 categories:
+   - "AGREED": Clearly expresses affirmative consent (e.g. "동의", "동의함", "동의합니다", "네", "예", "ㅇㅇ", "ㅇ", "yes", "ok", "O")
+   - "DISAGREED": Clearly expresses rejection or refusal (e.g. "아니오", "아니요", "아니", "거부", "거절", "싫어", "싫어요", "ㄴㄴ", "ㄴ", "no", "X")
+   - "IRRELEVANT": The handwriting was clearly read, but is neither consent nor refusal (e.g. "몰라", "글쎄", "안녕", "배고파", "왜?", "사과", ambiguous hesitation or unrelated words)
+   - "UNCLEAR": The handwriting cannot be transcribed at all (smudge, scribbles, scratches, single meaningless marks)
 3. Write "reason" strictly in polite, concise Korean (한국어 1문장, 영어 절대 금지):
    - Example for AGREED: "동의 의사가 확인되었습니다."
    - Example for DISAGREED: "'아니오' 또는 거부 의사로 확인되었습니다."
-   - Example for UNCLEAR: "글씨를 명확히 알아보기 어렵습니다."`;
+   - Example for IRRELEVANT: "'인식된단어'(으)로 인식되었으나 동의 여부를 알 수 없는 답변입니다."
+   - Example for UNCLEAR: "글씨를 명확히 판독하기 어렵습니다."`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-flash-lite',
@@ -89,7 +91,7 @@ Tasks:
         type: 'OBJECT',
         properties: {
           recognizedText: { type: 'STRING' },
-          sentiment: { type: 'STRING', enum: ['AGREED', 'DISAGREED', 'UNCLEAR'] },
+          sentiment: { type: 'STRING', enum: ['AGREED', 'DISAGREED', 'IRRELEVANT', 'UNCLEAR'] },
           isAgreed: { type: 'BOOLEAN' },
           confidence: { type: 'NUMBER' },
           reason: { type: 'STRING' },
@@ -105,7 +107,10 @@ Tasks:
   try {
     const parsed = JSON.parse(rawJson);
     const sentiment: ConsentSentiment =
-      parsed.sentiment === 'AGREED' || parsed.sentiment === 'DISAGREED' || parsed.sentiment === 'UNCLEAR'
+      parsed.sentiment === 'AGREED' ||
+      parsed.sentiment === 'DISAGREED' ||
+      parsed.sentiment === 'IRRELEVANT' ||
+      parsed.sentiment === 'UNCLEAR'
         ? parsed.sentiment
         : 'UNCLEAR';
 
@@ -115,6 +120,8 @@ Tasks:
         reason = `'${parsed.recognizedText || '거부'}' 의사로 확인되었습니다.`;
       } else if (sentiment === 'AGREED') {
         reason = `'${parsed.recognizedText || '동의'}' 의사가 확인되었습니다.`;
+      } else if (sentiment === 'IRRELEVANT') {
+        reason = `'${parsed.recognizedText || '무관한 내용'}'(으)로 인식되었으나 동의 여부를 알 수 없는 답변입니다.`;
       } else {
         reason = '글씨를 명확히 판별하기 어렵습니다.';
       }
@@ -174,12 +181,13 @@ export function evaluateTextSentiment(text: string): ConsentVerificationResponse
     };
   }
 
+  // 글씨는 인식되었으나 Yes/No가 아닌 무관하거나 모호한 답변 (예: "몰라", "안녕", "글쎄")
   return {
     isAgreed: false,
     recognizedText: text.trim(),
-    sentiment: 'UNCLEAR',
-    confidence: 0.5,
-    reason: '동의 여부를 판별하기 어려운 답변입니다. (예: 동의, 네, yes)',
+    sentiment: 'IRRELEVANT',
+    confidence: 0.85,
+    reason: `'${text.trim()}'(으)로 인식되었으나 동의 여부를 알 수 없는 답변입니다.`,
   };
 }
 
@@ -204,9 +212,9 @@ function fallbackHeuristicVerification(
   // 필기 획만으로는 긍정 동의 여부를 단정할 수 없으므로 안전하게 UNCLEAR 및 비동의 처리
   return {
     isAgreed: false,
-    recognizedText: '인식 불명',
+    recognizedText: '',
     sentiment: 'UNCLEAR',
     confidence: 0.3,
-    reason: '필기 답변을 명확히 인식할 수 없습니다. 동의 답변(예: 동의, 네, yes)을 다시 적어주세요.',
+    reason: '글씨를 판독할 수 없습니다. 조금 더 또렷하게 적어주세요.',
   };
 }

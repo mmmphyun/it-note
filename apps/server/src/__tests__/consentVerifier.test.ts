@@ -23,13 +23,14 @@ describe('consentVerifier: 필기 서약 동의 실시간 판정 검증', () => 
     }
   });
 
-  it('무관한 단어나 낙서 등은 UNCLEAR로 분류하고 isAgreed를 false로 설정해야 한다', () => {
-    const unclearSamples = ['피자', '12345', '블라블라'];
+  it('글씨는 인식되었으나 동의/거부와 무관하거나 모호한 답변(몰라, 피자 등)은 IRRELEVANT로 판별해야 한다', () => {
+    const irrelevantSamples = ['몰라', '피자', '12345', '글쎄', '안녕'];
 
-    for (const text of unclearSamples) {
+    for (const text of irrelevantSamples) {
       const result = evaluateTextSentiment(text);
       expect(result.isAgreed, `Failed for text: ${text}`).toBe(false);
-      expect(result.sentiment).toBe('UNCLEAR');
+      expect(result.sentiment).toBe('IRRELEVANT');
+      expect(result.recognizedText).toBe(text);
     }
   });
 

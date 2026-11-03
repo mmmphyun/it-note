@@ -40,7 +40,7 @@
   let hasDrawnSignature = $state(false);
 
   let isVerifyingConsent = $state(false);
-  let consentStatus = $state<'IDLE' | 'ANALYZING' | 'AGREED' | 'DISAGREED' | 'UNCLEAR'>('IDLE');
+  let consentStatus = $state<'IDLE' | 'ANALYZING' | 'AGREED' | 'DISAGREED' | 'IRRELEVANT' | 'UNCLEAR'>('IDLE');
   let recognizedConsentText = $state('');
   let consentFeedbackReason = $state('');
   let isConsentAgreed = $state(false);
@@ -628,7 +628,7 @@
 
             <div class="canvas-watermark-guide">
               {#if !hasDrawnSignature}
-                <span class="guide-text">종이 위에 당신의 답(동의, 네, O 등)을 자유롭게 적어주세요</span>
+                <span class="guide-text">종이 위에 당신의 답을 자유롭게 적어주세요</span>
               {/if}
             </div>
 
@@ -646,13 +646,17 @@
                   <span class="calib-stats disagreed">
                     <strong>✕ '{recognizedConsentText}'</strong> — {consentFeedbackReason || '동의하지 않는 답변입니다.'} 서비스 시작을 위해 동의가 필요합니다.
                   </span>
+                {:else if consentStatus === 'IRRELEVANT'}
+                  <span class="calib-stats irrelevant">
+                    <strong>? '{recognizedConsentText}'</strong> — {consentFeedbackReason || '글씨는 인식되었으나 동의 여부를 알 수 없는 답변입니다.'}
+                  </span>
                 {:else if consentStatus === 'UNCLEAR'}
                   <span class="calib-stats unclear">
-                    ? {consentFeedbackReason || '글씨를 인식할 수 없습니다. 긍정 답변(동의, 네, O 등)을 적어주세요.'}
+                    ? {consentFeedbackReason || '글씨를 판독할 수 없습니다. 조금 더 또렷하게 적어주세요.'}
                   </span>
                 {:else}
                   <span class="calib-stats idle">
-                    * 화면 속 종이에 동의 답변(동의, 네, O 등)을 적어주세요.
+                    * 화면 속 종이에 당신의 답을 자유롭게 적어주세요.
                   </span>
                 {/if}
               </div>
@@ -1022,6 +1026,11 @@
 
   .calib-stats.disagreed {
     color: #D32F2F;
+    font-weight: 500;
+  }
+
+  .calib-stats.irrelevant {
+    color: #6A1B9A;
     font-weight: 500;
   }
 
