@@ -79,13 +79,11 @@
       <div class="auth-buttons">
         <!-- 1. 신규 사용자 온보딩 체험 (직무/관심사 + 7일 시간표 설정) -->
         <button class="btn btn-fresh" onclick={() => handleDemoLogin(true)}>
-          <span class="btn-icon">🌱</span>
           <span class="btn-text">신규 온보딩부터 시작 (프로필/시간표 입력)</span>
         </button>
 
         <!-- 2. 기존 설정 계정으로 0초 캔버스 직행 -->
         <button class="btn btn-demo" onclick={() => handleDemoLogin(false)}>
-          <span class="btn-icon">⚡</span>
           <span class="btn-text">기존 프로필로 즉시 시작 (0초 캔버스 직행)</span>
         </button>
 

@@ -148,7 +148,7 @@
   </div>
 
   <div class="matrix-instructions">
-    <span>💡 위 브러시를 선택한 후, 마우스나 펜으로 긁어 주간 작업 루틴을 색칠하세요.</span>
+    <span>위 브러시를 선택한 후, 마우스나 펜으로 드래그하여 주간 작업 루틴을 지정하세요.</span>
   </div>
 
   <div class="matrix-grid">
