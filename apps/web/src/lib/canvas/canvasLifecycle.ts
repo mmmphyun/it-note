@@ -28,21 +28,21 @@ export function generateRandomTilt(): number {
 
 /**
  * 단어들의 예상 렌더링 픽셀 너비를 산출 (Nanum Pen Script 32px 기준 여유 마진 적용)
- * - 한글 글자당 약 24px (fontSize * 0.75)
- * - 영문 대문자 약 19.2px (fontSize * 0.60)
- * - 영문 소문자/숫자/기호 약 14.4px (fontSize * 0.45)
- * - 공백(space) 약 14px
+ * - 한글 글자당 약 28px (fontSize * 0.88, 필기 폰트 실측치 반영)
+ * - 영문 대문자 약 21px (fontSize * 0.65)
+ * - 영문 소문자/숫자/기호 약 16px (fontSize * 0.50)
+ * - 공백(space) 약 16px
  */
 export function estimateWordWidth(word: string, fontSize = 32): number {
   let width = 0;
   for (let i = 0; i < word.length; i++) {
     const code = word.charCodeAt(i);
     if (code >= 0xac00 && code <= 0xd7a3) {
-      width += fontSize * 0.75;
+      width += fontSize * 0.88;
     } else if (code >= 65 && code <= 90) {
-      width += fontSize * 0.6;
+      width += fontSize * 0.65;
     } else {
-      width += fontSize * 0.45;
+      width += fontSize * 0.5;
     }
   }
   return width;
@@ -64,8 +64,8 @@ export function formatHandwrittenSentence(
   const words = sentence.trim().split(/\s+/).filter(Boolean);
   if (words.length <= 3) return sentence.trim();
 
-  const spaceWidth = 14;
-  const effectiveWidth = Math.max(300, Math.min(680, availableWidth));
+  const spaceWidth = 16;
+  const effectiveWidth = Math.max(300, Math.min(540, availableWidth));
 
   const lines: string[] = [];
   let currentLineWords: string[] = [];
@@ -162,6 +162,9 @@ export class CanvasLifecycleEngine {
   hypothesisGestureStrokes: Point[][] = [];
   lastGesturePointerUpTime: number | null = null;
   gestureIdleGraceMs: number = 1500;
+
+  // 비동기 AI 추론 진행 플래그 (중복 요청 및 목업 문장 조기 노출 차단)
+  isInferring = false;
 
   // 기각 시 스모크아웃 애니메이션(650ms) 후 다음 대안 문장 지연 생성 타이머
   pendingNextHypothesisTime: number | null = null;
@@ -261,9 +264,9 @@ export class CanvasLifecycleEngine {
       this.mockSentenceIndex++;
       const bbox = this.pendingNextHypothesisBbox ?? [180, 140, 420, 200];
       this.pendingNextHypothesisBbox = null;
-      this.spawnHypothesis(bbox, now);
 
       if (this.callbacks.onInferRequested) {
+        this.isInferring = true;
         const req: InferRequestBody = {
           croppedImageBase64: 'data:image/png;base64,rejection-refinement',
           strokeMetadata: {
@@ -274,22 +277,31 @@ export class CanvasLifecycleEngine {
           previousEvaporatedContext: this.lastEvaporatedContext,
           rejectedHypotheses: [...this.rejectedHypotheses],
         };
-        this.callbacks.onInferRequested(req).then((res) => {
-          if (res && this.activeHypothesis && !this.activeHypothesis.isConfirmed) {
-            const adjustedBbox = calculateVisibleHypothesisBbox(res.jevDecision.marginBox.coordinates, this.currentViewport, 520, 105);
-            const dynamicWidth = adjustedBbox[2];
-            const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
-            this.activeHypothesis.sentence = formatted;
-            this.activeHypothesis.bbox = adjustedBbox;
-            const allKw = [
-              ...(res.extractedKeywords?.active || []),
-              ...(res.extractedKeywords?.chosen || []),
-              ...(res.extractedKeywords?.emphasized || []),
-            ].filter(Boolean);
-            this.activeHypothesis.keywords = allKw.length > 0 ? Array.from(new Set(allKw)) : [];
-            this.lastEvaporatedContext = formatted;
-          }
-        }).catch(() => {});
+        this.callbacks.onInferRequested(req)
+          .then((res) => {
+            this.isInferring = false;
+            if (res && !this.activeHypothesis) {
+              const adjustedBbox = calculateVisibleHypothesisBbox(res.jevDecision.marginBox.coordinates, this.currentViewport, 520, 105);
+              const dynamicWidth = adjustedBbox[2];
+              const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
+              const allKw = [
+                ...(res.extractedKeywords?.active || []),
+                ...(res.extractedKeywords?.chosen || []),
+                ...(res.extractedKeywords?.emphasized || []),
+              ].filter(Boolean);
+              this.spawnHypothesis(adjustedBbox, performance.now(), formatted, allKw.length > 0 ? Array.from(new Set(allKw)) : []);
+            } else if (!this.activeHypothesis) {
+              this.spawnHypothesis(bbox, performance.now());
+            }
+          })
+          .catch(() => {
+            this.isInferring = false;
+            if (!this.activeHypothesis) {
+              this.spawnHypothesis(bbox, performance.now());
+            }
+          });
+      } else {
+        this.spawnHypothesis(bbox, now);
       }
     }
 
@@ -367,12 +379,12 @@ export class CanvasLifecycleEngine {
 
     if (decay.isEvaporated) {
       const cropped = extractCroppedStrokes(this.strokes);
-      // AI 가설 문장이 이미 표시 중인 동안에는 중복 재생성을 원천 차단
-      if (cropped && !this.activeHypothesis) {
+      // AI 가설 문장이 이미 표시 중이거나 비동기 추론 중인 동안에는 중복 재생성을 원천 차단
+      if (cropped && !this.activeHypothesis && !this.isInferring) {
         this.callbacks.onCropExtracted?.(cropped);
-        this.spawnHypothesis(cropped.bbox, now);
 
         if (this.callbacks.onInferRequested) {
+          this.isInferring = true;
           const req: InferRequestBody = {
             croppedImageBase64: cropped.base64,
             strokeMetadata: {
@@ -383,22 +395,43 @@ export class CanvasLifecycleEngine {
             previousEvaporatedContext: this.lastEvaporatedContext,
             rejectedHypotheses: [...this.rejectedHypotheses],
           };
-          this.callbacks.onInferRequested(req).then((res) => {
-            if (res && this.activeHypothesis && !this.activeHypothesis.isConfirmed && !this.activeHypothesis.isRejected) {
-              const adjustedBbox = calculateVisibleHypothesisBbox(res.jevDecision.marginBox.coordinates, this.currentViewport, 520, 105);
-              const dynamicWidth = adjustedBbox[2];
-              const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
-              this.activeHypothesis.sentence = formatted;
-              this.activeHypothesis.bbox = adjustedBbox;
-              const allKw = [
-                ...(res.extractedKeywords?.active || []),
-                ...(res.extractedKeywords?.chosen || []),
-                ...(res.extractedKeywords?.emphasized || []),
-              ].filter(Boolean);
-              this.activeHypothesis.keywords = allKw.length > 0 ? Array.from(new Set(allKw)) : [];
-              this.lastEvaporatedContext = formatted;
-            }
-          }).catch(() => {});
+          this.callbacks.onInferRequested(req)
+            .then((res) => {
+              this.isInferring = false;
+              if (res && !this.activeHypothesis) {
+                const adjustedBbox = calculateVisibleHypothesisBbox(
+                  res.jevDecision.marginBox.coordinates,
+                  this.currentViewport,
+                  520,
+                  105
+                );
+                const dynamicWidth = adjustedBbox[2];
+                const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
+                const allKw = [
+                  ...(res.extractedKeywords?.active || []),
+                  ...(res.extractedKeywords?.chosen || []),
+                  ...(res.extractedKeywords?.emphasized || []),
+                ].filter(Boolean);
+                this.spawnHypothesis(
+                  adjustedBbox,
+                  performance.now(),
+                  formatted,
+                  allKw.length > 0 ? Array.from(new Set(allKw)) : []
+                );
+              } else if (!this.activeHypothesis) {
+                // 백엔드 응답 실패 시 목업 가설로 안전 스폰
+                this.spawnHypothesis(cropped.bbox, performance.now());
+              }
+            })
+            .catch(() => {
+              this.isInferring = false;
+              if (!this.activeHypothesis) {
+                this.spawnHypothesis(cropped.bbox, performance.now());
+              }
+            });
+        } else {
+          // 동기 모드 (onInferRequested 콜백 미등록 시)
+          this.spawnHypothesis(cropped.bbox, now);
         }
       }
       this.strokes = [];
@@ -412,7 +445,12 @@ export class CanvasLifecycleEngine {
     this.currentViewport = viewport;
   }
 
-  spawnHypothesis(bbox: [number, number, number, number], now: number, customSentence?: string): void {
+  spawnHypothesis(
+    bbox: [number, number, number, number],
+    now: number,
+    customSentence?: string,
+    customKeywords?: string[]
+  ): void {
     const rawSentence = customSentence ?? this.mockSentences[this.mockSentenceIndex % this.mockSentences.length];
     const tiltDeg = generateRandomTilt();
 
@@ -431,6 +469,7 @@ export class CanvasLifecycleEngine {
       isConfirmed: false,
       isRejected: false,
       tiltDeg,
+      keywords: customKeywords,
     };
     this.activeHypothesis = hypothesis;
     this.lastEvaporatedContext = formattedSentence;

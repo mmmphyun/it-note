@@ -326,4 +326,51 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     expect(adjY + h).toBeLessThanOrEqual(visMaxY);
     expect(adjY).toBeGreaterThanOrEqual(-viewport.scrollY);
   });
+
+  it('비동기 onInferRequested 등록 시 목업 문장 조기 노출 없이 AI 응답 문장으로 스폰되어야 한다', async () => {
+    let inferCalled = false;
+    let resolveInfer: ((value: any) => void) | null = null;
+    const inferPromise = new Promise((resolve) => {
+      resolveInfer = resolve;
+    });
+
+    const engine = new CanvasLifecycleEngine(
+      {
+        onInferRequested: () => {
+          inferCalled = true;
+          return inferPromise as any;
+        },
+      },
+      false
+    );
+
+    engine.pointerDown({ x: 100, y: 100, t: 0 });
+    engine.pointerUp(1000);
+
+    // 90초 경과로 증발 유도
+    engine.tick(91000);
+
+    // 1. 요청은 방출되었으나 아직 응답이 오기 전: 목업 문장이 성급하게 스폰되지 않아야 함
+    expect(inferCalled).toBe(true);
+    expect(engine.isInferring).toBe(true);
+    expect(engine.activeHypothesis).toBeNull();
+
+    // 2. 비동기 AI 응답 도달
+    resolveInfer!({
+      sentence: 'FastAPI에서 NestJS로 마이그레이션하려는 단계인가요?',
+      jevDecision: {
+        marginBox: { coordinates: [200, 100, 600, 205] },
+      },
+      extractedKeywords: { active: ['FastAPI', 'NestJS'] },
+    });
+
+    // 마이크로태스크 큐 플러시
+    await Promise.resolve();
+
+    // 3. 실제 AI 추론 결과로 가설 생성 확인
+    expect(engine.isInferring).toBe(false);
+    expect(engine.activeHypothesis).not.toBeNull();
+    expect(engine.activeHypothesis!.sentence).toContain('NestJS');
+    expect(engine.activeHypothesis!.keywords).toEqual(['FastAPI', 'NestJS']);
+  });
 });
