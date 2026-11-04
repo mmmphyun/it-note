@@ -107,7 +107,7 @@ export function getSession(sessionId: string | null): AuthSession | null {
   sessionStore.set(sessionId, recoveredSession);
   userStore.set(recoveredProfile.id, {
     profile: recoveredProfile,
-    routine: [...DEFAULT_DEMO_ROUTINE],
+    routine: [],
   });
 
   return recoveredSession;

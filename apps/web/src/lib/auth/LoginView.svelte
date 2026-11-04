@@ -33,6 +33,11 @@
     isLoading = true;
     errorMessage = null;
     try {
+      if (fresh) {
+        try {
+          localStorage.removeItem('itnote_onboarding_draft');
+        } catch {}
+      }
       const url = fresh ? '/api/auth/demo?fresh=1' : '/api/auth/demo';
       const res = await fetch(url, { method: 'POST' });
       if (!res.ok) throw new Error('데모 로그인 처리에 실패했습니다.');

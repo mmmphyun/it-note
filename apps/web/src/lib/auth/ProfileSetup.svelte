@@ -51,7 +51,35 @@
   let isSaving = $state(false);
   let errorMessage = $state<string | null>(null);
 
+  const ONBOARDING_DRAFT_KEY = 'itnote_onboarding_draft';
+
   onMount(() => {
+    // 1. 온보딩 도중 튕겼을 때 사용자가 입력했던 실제 값으로 자동 복구
+    try {
+      const rawDraft = localStorage.getItem(ONBOARDING_DRAFT_KEY);
+      if (rawDraft) {
+        const draft = JSON.parse(rawDraft);
+        if (draft && typeof draft === 'object') {
+          if (typeof draft.currentStep === 'number' && draft.currentStep >= 1 && draft.currentStep <= 7) {
+            currentStep = draft.currentStep;
+          }
+          if (typeof draft.role === 'string') role = draft.role;
+          if (typeof draft.interestsString === 'string') interestsString = draft.interestsString;
+          if (Array.isArray(draft.routineSlots)) routineSlots = draft.routineSlots;
+          if (typeof draft.subInterestsString === 'string') subInterestsString = draft.subInterestsString;
+          if (typeof draft.lifestyleHabitsString === 'string') lifestyleHabitsString = draft.lifestyleHabitsString;
+          if (draft.thinkingStyle === 'PRAGMATIC' || draft.thinkingStyle === 'SYSTEMATIC') {
+            thinkingStyle = draft.thinkingStyle;
+          }
+          if (draft.sentenceTone === 'CONCISE' || draft.sentenceTone === 'DETAILED') {
+            sentenceTone = draft.sentenceTone;
+          }
+          return;
+        }
+      }
+    } catch {}
+
+    // 2. 임시 저장본이 없는 초기 진입 시 기본값 바인딩
     role = initialProfile.role || '';
     interestsString = (initialProfile.interests || []).join(', ');
     routineSlots = initialRoutine || [];
@@ -62,6 +90,23 @@
       thinkingStyle = initialProfile.preferences.thinkingStyle || 'PRAGMATIC';
       sentenceTone = initialProfile.preferences.sentenceTone || 'CONCISE';
     }
+  });
+
+  // 사용자가 입력한 실제 데이터 변경 시 실시간 로컬 드래프트 백업
+  $effect(() => {
+    const draft = {
+      currentStep,
+      role,
+      interestsString,
+      routineSlots,
+      subInterestsString,
+      lifestyleHabitsString,
+      thinkingStyle,
+      sentenceTone,
+    };
+    try {
+      localStorage.setItem(ONBOARDING_DRAFT_KEY, JSON.stringify(draft));
+    } catch {}
   });
 
   // 캔버스 필기 이벤트 핸들러
@@ -359,6 +404,10 @@
       });
       if (!resRoutine.ok) throw new Error('루틴 시간표 저장에 실패했습니다.');
       const dataRoutine = await resRoutine.json();
+
+      try {
+        localStorage.removeItem(ONBOARDING_DRAFT_KEY);
+      } catch {}
 
       onComplete(dataProf.profile, dataRoutine.routine);
     } catch (err: any) {
