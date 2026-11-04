@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { onMount } from 'svelte';
   import type { ConfirmedNote, EvolvingContext, RoutineSlot, BillingStatus, UserProfile } from '@itnote/shared';
   import RoutineMatrix from '../auth/RoutineMatrix.svelte';
@@ -14,8 +14,8 @@
 
   let activeTab = $state<'notes' | 'context' | 'routine' | 'profile' | 'billing'>('notes');
   let evolvingContext = $state<EvolvingContext>({
-    ongoingTopics: ['Svelte 5', 'Hono', 'Zero-UI', 'Pure Stylus'],
-    domainVocabulary: ['PointerEvent', 'Shoelace', 'Idempotency'],
+    ongoingTopics: [],
+    domainVocabulary: [],
     confirmedPreferences: [],
     recentConfirmedNotes: [],
   });

@@ -40,6 +40,7 @@ export interface AiHypothesis {
   isConfirmed: boolean;
   isRejected: boolean;
   tiltDeg?: number; // 손글씨 자연스러운 미세 회전 각도 (단위: deg, 예: -1.5 ~ +1.5)
+  keywords?: string[]; // AI 추론 모델이 도출한 핵심 키워드 목록
 }
 
 export interface ConfirmedNote {

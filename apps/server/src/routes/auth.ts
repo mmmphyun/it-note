@@ -14,12 +14,12 @@ const SESSION_COOKIE_NAME = 'itnote_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30일 장기 세션
 
 // 인메모리 세션 및 사용자 데이터 스토어 (Zero-Retention 원칙 준수)
-interface StoredUser {
+export interface StoredUser {
   profile: UserProfile;
   routine: RoutineSlot[];
 }
 
-const userStore = new Map<string, StoredUser>();
+export const userStore = new Map<string, StoredUser>();
 const sessionStore = new Map<string, AuthSession>();
 const revokedSessionIds = new Set<string>();
 

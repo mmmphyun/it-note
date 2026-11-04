@@ -169,9 +169,9 @@ export class CanvasLifecycleEngine {
 
   private mockSentenceIndex = 0;
   private mockSentences = [
-    '가상 DOM 오버헤드가 큰 React 대신 Svelte 5와 Hono로 모노레포를 구성하는 계획 맞나요?',
-    '사이드 프로젝트 아키텍처를 순수 TypeScript와 Zero-UI 스타일러스 방식으로 전환하려는 의도인가요?',
-    '취소선으로 기각된 가설을 배제하고 클라우드 보안 자동화 루틴을 설계하려는 맥락인가요?',
+    '방금 적어주신 생각을 바탕으로 다음 방향을 정리해 볼까요?',
+    '떠올리신 핵심 아이디어를 구체화하여 진행하려는 계획 맞나요?',
+    '기록하신 항목을 우선순위에 따라 순차적으로 실행하시려는 건가요?',
   ];
 
   constructor(callbacks: CanvasLifecycleCallbacks = {}, speedMode: boolean | SpeedMode = 'normal') {
@@ -205,11 +205,15 @@ export class CanvasLifecycleEngine {
       this.activeHypothesis.isConfirmed = true;
       this.hypothesisGestureStrokes = [];
       this.lastGesturePointerUpTime = null;
+      const confirmedKeywords =
+        this.activeHypothesis.keywords && this.activeHypothesis.keywords.length > 0
+          ? this.activeHypothesis.keywords
+          : [];
       const confirmed: ConfirmedNote = {
         id: `confirmed-${now}`,
         sentence: this.activeHypothesis.sentence,
         confirmedAt: now,
-        keywords: ['Svelte 5', 'Hono', 'Zero-UI'],
+        keywords: confirmedKeywords,
         sourceBBox: this.activeHypothesis.bbox,
       };
       this.confirmedNotes.push(confirmed);
@@ -276,6 +280,13 @@ export class CanvasLifecycleEngine {
             const dynamicWidth = adjustedBbox[2];
             const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
             this.activeHypothesis.sentence = formatted;
+            this.activeHypothesis.bbox = adjustedBbox;
+            const allKw = [
+              ...(res.extractedKeywords?.active || []),
+              ...(res.extractedKeywords?.chosen || []),
+              ...(res.extractedKeywords?.emphasized || []),
+            ].filter(Boolean);
+            this.activeHypothesis.keywords = allKw.length > 0 ? Array.from(new Set(allKw)) : [];
             this.lastEvaporatedContext = formatted;
           }
         }).catch(() => {});
@@ -326,6 +337,12 @@ export class CanvasLifecycleEngine {
                 const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
                 this.activeHypothesis.sentence = formatted;
                 this.activeHypothesis.bbox = adjustedBbox;
+                const allKw = [
+                  ...(res.extractedKeywords?.active || []),
+                  ...(res.extractedKeywords?.chosen || []),
+                  ...(res.extractedKeywords?.emphasized || []),
+                ].filter(Boolean);
+                this.activeHypothesis.keywords = allKw.length > 0 ? Array.from(new Set(allKw)) : [];
                 this.lastEvaporatedContext = formatted;
                 this.callbacks.onFeedbackRefined?.(formatted);
               }
@@ -373,6 +390,12 @@ export class CanvasLifecycleEngine {
               const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
               this.activeHypothesis.sentence = formatted;
               this.activeHypothesis.bbox = adjustedBbox;
+              const allKw = [
+                ...(res.extractedKeywords?.active || []),
+                ...(res.extractedKeywords?.chosen || []),
+                ...(res.extractedKeywords?.emphasized || []),
+              ].filter(Boolean);
+              this.activeHypothesis.keywords = allKw.length > 0 ? Array.from(new Set(allKw)) : [];
               this.lastEvaporatedContext = formatted;
             }
           }).catch(() => {});

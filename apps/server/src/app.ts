@@ -61,8 +61,10 @@ app.use('/api/infer', async (c, next) => {
   await next();
 });
 
-// 3. IP당 일일 호출 제한 (In-Memory Sliding Window Rate Limiter)
-app.use('/api/*', createSlidingWindowRateLimiter({ windowMs: 24 * 60 * 60 * 1000, maxRequests: 100 }));
+// 3. IP당 일일 고비용 AI 호출 제한 (In-Memory Sliding Window Rate Limiter: /api/infer 한정 및 프로덕션 활성화)
+if (process.env.NODE_ENV === 'production') {
+  app.use('/api/infer', createSlidingWindowRateLimiter({ windowMs: 24 * 60 * 60 * 1000, maxRequests: 100 }));
+}
 
 // 3. 헬스 체크
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: Date.now() }));

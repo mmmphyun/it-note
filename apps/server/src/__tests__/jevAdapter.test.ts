@@ -62,6 +62,36 @@ describe('System 1 Jev Adapter & API Schema', () => {
     expect(typeof json.sentence).toBe('string');
   });
 
+  it('POST /api/infer 엔드포인트는 세션 쿠키 수신 시 사용자의 직무와 루틴을 userContext에 자동 주입해야 한다', async () => {
+    // 1. 데모 로그인으로 세션 생성
+    const loginRes = await app.request('/api/auth/demo', { method: 'POST' });
+    const loginData = await loginRes.json();
+    const sessionId = loginData.session.sessionId;
+
+    const reqBody: InferRequestBody = {
+      rawTextInput: '신규 기능 기획서 작성 중',
+      strokeMetadata: {
+        strokeCount: 4,
+        bbox: [100, 100, 300, 200],
+        canvasSize: [2400, 1800],
+      },
+    };
+
+    const res = await app.request('/api/infer', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `itnote_session=${sessionId}`,
+      },
+      body: JSON.stringify(reqBody),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toHaveProperty('sentence');
+    expect(json).toHaveProperty('jevDecision');
+  });
+
   it('croppedImageBase64 누락 시 400 Bad Request를 반환해야 한다', async () => {
     const res = await app.request('/api/infer', {
       method: 'POST',

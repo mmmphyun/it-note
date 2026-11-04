@@ -69,7 +69,15 @@ export interface StrokeMetadata {
 }
 
 export interface InferUserContext {
-  persona?: { role?: string; interests?: string[] };
+  persona?: {
+    role?: string;
+    interests?: string[];
+    subInterests?: string[];
+    lifestyleHabits?: string[];
+    thinkingStyle?: string;
+    sentenceTone?: string;
+    currentActivity?: string;
+  };
   currentRoutineState?: string;
   evolvingTopics?: string[];
   recentConfirmedNotes?: string[];
