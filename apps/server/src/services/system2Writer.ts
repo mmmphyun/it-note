@@ -2,6 +2,7 @@ import type {
   JevDecision,
   ExtractedKeywords,
   InferRequestBody,
+  CandidateHypothesisPool,
 } from '@itnote/shared';
 import type { GoogleGenAI } from '@google/genai';
 import { getGeminiClient } from './geminiClient';
@@ -12,6 +13,93 @@ export interface System2Params {
   decision: JevDecision;
   keywords: ExtractedKeywords;
   request: InferRequestBody;
+}
+
+/**
+ * 차세대 System 2: 직교 5-Way 후보 가설 문장 풀 생성기
+ * 1. candidate_project: 현재 프로젝트 구현/기술 관점
+ * 2. candidate_routine: 오늘 시간대 루틴/할 일 관점
+ * 3. candidate_pivot: 취소선/이전 기각 반영 대안 관점
+ * 4. candidate_longterm: 과거 확정 노트 및 장기 맥락 연결 관점
+ * 5. candidate_definition: 단순 용어 정의/요약 관점
+ */
+export async function generateCandidateHypothesisPool(params: System2Params): Promise<CandidateHypothesisPool> {
+  const { decision, keywords, request } = params;
+  const activeKw = keywords.active.length > 0 ? keywords.active.join(', ') : 'Svelte 5';
+  const struckOutKw = keywords.struckOut.length > 0 ? keywords.struckOut.join(', ') : '';
+  const prevContext = request.previousEvaporatedContext ?? '';
+  const recentNotes = request.userContext?.recentConfirmedNotes ?? [];
+  const domain = decision.domainRoute.selected;
+
+  // 테스트 환경이거나 Gemini 클라이언트 미설정 시 휴리스틱 5-Way 생성
+  const ai = process.env.NODE_ENV === 'test' ? null : getGeminiClient();
+
+  if (ai) {
+    try {
+      const prompt = `You are the Hypothesis Generator of 'It!note'.
+Generate a JSON object containing EXACTLY 5 orthogonal Korean hypothesis sentences for the user's handwritten note.
+Each sentence must be a complete question ending with '~맞나요?' or '~인가요?'.
+Never output markdown blocks or conversational text. Return valid JSON only:
+
+{
+  "candidate_project": "...",
+  "candidate_routine": "...",
+  "candidate_pivot": "...",
+  "candidate_longterm": "...",
+  "candidate_definition": "..."
+}
+
+Rules:
+1. candidate_project: Frame around architecture, implementation, coding or project workflow.
+2. candidate_routine: Frame around user's daily habits, meals, schedule or routine.
+3. candidate_pivot: If strikethrough exists (${struckOutKw || 'none'}), pivot from it to ${activeKw}. Otherwise offer a bold alternative perspective.
+4. candidate_longterm: Connect to previous context (${prevContext || 'none'}) or past notes (${recentNotes.slice(-2).join(' / ') || 'none'}).
+5. candidate_definition: Frame around core terminology definition or summary.
+
+Active Keywords: ${activeKw}
+Struck-out Keywords: ${struckOutKw || 'none'}
+Inferred Domain: ${domain}
+`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-flash-lite',
+        contents: prompt,
+        config: {
+          maxOutputTokens: 600,
+          temperature: 0.4,
+          responseMimeType: 'application/json'
+        }
+      });
+
+      const parsed = JSON.parse(response.text?.trim() ?? '{}');
+      if (
+        parsed.candidate_project &&
+        parsed.candidate_routine &&
+        parsed.candidate_pivot &&
+        parsed.candidate_longterm &&
+        parsed.candidate_definition
+      ) {
+        return parsed as CandidateHypothesisPool;
+      }
+    } catch {
+      // JSON 파싱 실패 또는 API 오류 시 아래 휴리스틱으로 폴백
+    }
+  }
+
+  // 결정론적 5-Way 직교 후보 합성 폴백
+  const baseSentence = runHeuristicSystem2(params);
+
+  return {
+    candidate_project: `${activeKw} 기반으로 프로젝트 아키텍처를 최적화하려는 구상 맞나요?`,
+    candidate_routine: `${activeKw} 작업을 오늘 일정 루틴에 맞춰 진행하시려는 계획인가요?`,
+    candidate_pivot: struckOutKw
+      ? `${struckOutKw} 대신 ${activeKw}(으)로 방향을 전환하려는 결정인가요?`
+      : `${activeKw} 대신 다른 대안을 배제하고 단일 파이프라인으로 확정하려는 의도인가요?`,
+    candidate_longterm: prevContext
+      ? `직전에 메모한 "${prevContext}" 흐름에 이어 ${activeKw}를 결합하려는 생각 맞나요?`
+      : `${activeKw} 노트를 과거 작업 히스토리와 연결하여 기록하려는 내용인가요?`,
+    candidate_definition: baseSentence
+  };
 }
 
 /**

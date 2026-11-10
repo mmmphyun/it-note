@@ -93,4 +93,45 @@ export interface InferRequestBody {
   userContext?: InferUserContext;
 }
 
-export type InferResponseBody = JevDecisionResult;
+export interface InferResponseBody extends JevDecisionResult {
+  candidatePool?: CandidateHypothesisPool;
+  rerankerResult?: JevRerankerResult;
+}
+
+/**
+ * 차세대 LLM 5-Way 직교 후보 가설 문장 풀
+ */
+export interface CandidateHypothesisPool {
+  candidate_project: string;     // 현재 프로젝트/구현 관점
+  candidate_routine: string;     // 시간표 루틴 관점
+  candidate_pivot: string;       // 취소선/오답 피벗 관점
+  candidate_longterm: string;    // 과거 확정 노트 연결 관점
+  candidate_definition: string;  // 용어/개념 정리 관점
+}
+
+export type CandidateKey = keyof CandidateHypothesisPool;
+
+/**
+ * Jev Reranker 채점 입력 및 판별 결과
+ */
+export interface JevRerankerInput {
+  candidates: CandidateHypothesisPool;
+  userContext: {
+    persona?: InferUserContext['persona'];
+    currentRoutine?: string;
+    linkedContexts?: Array<{
+      noteId: string;
+      sentence: string;
+      similarity: number;
+    }>;
+    rejectedHistory?: string[];
+  };
+}
+
+export interface JevRerankerResult {
+  selectedKey: CandidateKey;
+  winningSentence: string;
+  confidenceScore: number;
+  reasonNoul: string;
+  candidateScores: Record<CandidateKey, number>;
+}

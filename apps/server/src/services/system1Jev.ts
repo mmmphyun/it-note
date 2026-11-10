@@ -7,6 +7,9 @@ import type {
   DomainRoute,
   InputClassification,
   ActionTask,
+  CandidateHypothesisPool,
+  JevRerankerInput,
+  JevRerankerResult,
 } from '@itnote/shared';
 import type { GoogleGenAI } from '@google/genai';
 import { getGeminiClient } from './geminiClient';
@@ -473,5 +476,75 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
       chosen: chosenKeywords,
       emphasized: emphasizedKeywords,
     },
+  };
+}
+
+/**
+ * 차세대 Jev Discriminator: 5개 직교 후보 문장 중 최적의 1개를 Choice로 확정
+ */
+export function runJevReranker(input: JevRerankerInput): JevRerankerResult {
+  const { candidates, userContext } = input;
+  const hasStrikethrough = (userContext.rejectedHistory?.length ?? 0) > 0;
+  const hasLinkedContext = (userContext.linkedContexts?.length ?? 0) > 0;
+  const hasRoutine = Boolean(userContext.currentRoutine);
+
+  // 기본 가중치 초기화
+  const rawScores: Record<keyof CandidateHypothesisPool, number> = {
+    candidate_project: 0.5,
+    candidate_routine: 0.4,
+    candidate_pivot: 0.2,
+    candidate_longterm: 0.3,
+    candidate_definition: 0.35,
+  };
+
+  // 맥락 신호에 따른 가중치 조정
+  if (hasStrikethrough) {
+    // 취소선이나 이전 기각이 존재하면 피벗 관점 대폭 상향
+    rawScores.candidate_pivot += 0.6;
+  }
+
+  if (hasLinkedContext) {
+    // 과거 연관 노트가 발견되었으면 장기 맥락 연결 관점 상향
+    const topSimilarity = userContext.linkedContexts![0].similarity;
+    rawScores.candidate_longterm += topSimilarity * 0.7;
+  }
+
+  if (hasRoutine) {
+    // 현재 시간대 루틴이 일치하면 루틴 관점 상향
+    rawScores.candidate_routine += 0.3;
+  }
+
+  // 소프트맥스(Softmax) 정규화
+  const keys = Object.keys(rawScores) as Array<keyof CandidateHypothesisPool>;
+  const expScores = keys.map((k) => Math.exp(rawScores[k]));
+  const sumExp = expScores.reduce((acc, v) => acc + v, 0);
+
+  const candidateScores = {} as Record<keyof CandidateHypothesisPool, number>;
+  let bestKey: keyof CandidateHypothesisPool = 'candidate_project';
+  let bestScore = -1;
+
+  keys.forEach((k, idx) => {
+    const norm = Math.round((expScores[idx] / sumExp) * 100) / 100;
+    candidateScores[k] = norm;
+    if (norm > bestScore) {
+      bestScore = norm;
+      bestKey = k;
+    }
+  });
+
+  const reasonMap: Record<keyof CandidateHypothesisPool, string> = {
+    candidate_project: '사용자의 프로필 및 개발 작업 맥락과 가장 높은 적합도를 보임',
+    candidate_routine: '현재 요일 및 시간대 루틴 상태에 부합하는 실행 과제임',
+    candidate_pivot: '취소선 및 이전 기각 이력을 배제한 최적의 대안 가설임',
+    candidate_longterm: '과거에 확정했던 관련 노트 맥락과 가장 높은 의미적 일치도를 보임',
+    candidate_definition: '핵심 키워드의 개념 정의 및 요약에 가장 충실함',
+  };
+
+  return {
+    selectedKey: bestKey,
+    winningSentence: candidates[bestKey],
+    confidenceScore: bestScore,
+    reasonNoul: reasonMap[bestKey],
+    candidateScores,
   };
 }

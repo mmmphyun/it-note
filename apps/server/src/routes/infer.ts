@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
-import type { InferRequestBody, JevDecisionResult } from '@itnote/shared';
-import { runSystem1Jev } from '../services/system1Jev';
-import { runSystem2Writer } from '../services/system2Writer';
+import type { InferRequestBody, InferResponseBody } from '@itnote/shared';
+import { runSystem1Jev, runJevReranker } from '../services/system1Jev';
+import { generateCandidateHypothesisPool } from '../services/system2Writer';
 import { extractSessionId, getSession, userStore } from './auth';
 import { getUserContext } from '../services/profileEnricher';
 
@@ -54,20 +54,32 @@ inferRoute.post('/', async (c) => {
     };
   }
 
-  // 1. System 1 (Jev/OpenJev 의사결정)
+  // 1. System 1 (Jev/OpenJev 기본 의사결정 및 키워드 추출)
   const system1Output = await runSystem1Jev(body);
 
-  // 2. System 2 (단일 문장 생성)
-  const sentence = await runSystem2Writer({
+  // 2. Generator: 직교 5-Way 후보 가설 문장 풀 생성
+  const candidatePool = await generateCandidateHypothesisPool({
     decision: system1Output.decision,
     keywords: system1Output.keywords,
     request: body,
   });
 
-  const response: JevDecisionResult = {
+  // 3. Discriminator: Jev Reranker가 맥락 대조 후 최적 1문장 Choice 확정
+  const rerankerResult = runJevReranker({
+    candidates: candidatePool,
+    userContext: {
+      persona: body.userContext?.persona,
+      currentRoutine: body.userContext?.currentRoutineState,
+      rejectedHistory: body.rejectedHypotheses,
+    },
+  });
+
+  const response: InferResponseBody = {
     jevDecision: system1Output.decision,
     extractedKeywords: system1Output.keywords,
-    sentence,
+    sentence: rerankerResult.winningSentence,
+    candidatePool,
+    rerankerResult,
   };
 
   return c.json(response);
