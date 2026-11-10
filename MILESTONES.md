@@ -188,9 +188,9 @@
 
 ---
 
-## 마일스톤 4 (v2 고도화 / AI 엔지니어링): 텍스트 맥락 추론 특화 온디바이스 SLM 및 Zero-Knowledge E2EE 동기화
+## 마일스톤 4 (v2 고도화 / AI 엔지니어링): 한국어 특화 인코더 배치 Jev 엔진 및 Zero-Knowledge E2EE 동기화
 
-**목표**: 비전 OCR과 언어 맥락 추론을 분리하고, 텍스트 토큰 간 의미론적 관계 및 다중 턴 맥락 결합을 전담하는 0.5B~2B급 특화 SLM, 투기적 실행(Speculative Execution) 엔진, 그리고 Web Crypto API 기반 Zero-Knowledge E2EE 종단간 암호화 동기화 계층을 구축하여 제로 레이턴시(0ms), API 비용 0원, 완벽한 Zero-Knowledge 기밀성을 달성합니다.
+**목표**: 비전 OCR 및 5-Way 직교 가설 생성(Generator)과 한국어 특화 인코더 판별(Discriminator)을 엄격히 분리하고, `klue/roberta-large` INT8 ONNX 모델과 `onnxruntime-node`를 Hono 서버에 상주 프리로드하여 생성 토큰 0개의 초고속 배치 로짓 판별(50-80ms CPU)을 달성합니다. 아울러 Web Crypto API 기반 Zero-Knowledge E2EE 동기화 계층을 구축하여 클라우드 무료 티어 사수 및 완벽한 기밀성을 확보합니다.
 
 ### 상세 구현 체크리스트 (Milestone 4 Executable Checklist)
 - [x] **Step 4-1: 클라이언트 1.5초 펜 유휴 감지 및 AbortController 상태 머신 구축**
@@ -203,10 +203,9 @@
 - [x] **Step 4-3: 로컬 Jev 기반 장기 맥락 자연어 검색 엔진 구축**
   - [x] `apps/web/src/lib/jev/localJevMatcher.ts`: `pg-jev` 알고리즘을 단일 TS 모듈로 포팅하여 IndexedDB 확정 노트 인메모리 스캔 및 Top-3 도출
   - [x] `apps/web/src/lib/jev/__tests__/localJevMatcher.test.ts`: 자카드 유사도 및 최신성 감쇄 가중치 단위 테스트 검증 (100% 통과)
-- [ ] **Step 4-4: 3-Tier 온디바이스 모델(WebGPU / ONNX) 통합 및 레이턴시 벤치마크**
-  - [ ] Tier 1: `korean-handwriting-rec` (PP-OCRv5 ONNX ~15MB) 획-텍스트 변환기 연동
-  - [ ] Tier 2: `SemIf-OpenJev` (Qwen-1.5B INT4) CPU 30ms 단일 포워드 패스 로짓 판독기 연동
-  - [ ] Tier 3: 로컬 가설 합성기 결합으로 완전한 Zero-Outbound 기밀성 및 0ms 체감 지연 완성
+- [ ] **Step 4-4: 한국어 특화 인코더 배치 Jev 엔진 및 onnxruntime-node 연동 (`neuralJevEngine.ts`)**
+  - [ ] `apps/server/src/services/neuralJevEngine.ts`: `onnxruntime-node` C++ 바인딩을 Hono에 프리로드(`preload=True`)하고, 5-Way 가설을 `batch_size=5` 단일 텐서 1회 순전파(50-80ms CPU)로 로짓 추출 및 최적 문장 판별
+  - [ ] `apps/server/src/__tests__/neuralJevEngine.test.ts`: 단위 테스트 작성 및 80ms 이내 순전파 검증
 - [ ] **Step 4-5: Web Crypto API 기반 로컬 E2EE 암호화 엔진 구축 (`cryptoSync.ts`)**
   - [ ] PBKDF2-HMAC-SHA256 (100,000회 반복) 마스터 키 유도 함수 구현
   - [ ] 확정 노트 본문 AES-256-GCM 클라이언트 대칭키 암호화 (`ciphertext`, `iv`, `salt`) 및 복호화 단위 테스트 작성
@@ -214,31 +213,32 @@
   - [ ] 평문 파싱 없이 암호문 블롭만 RDBMS에 보관하는 동기화 엔드포인트(`POST /api/sync`, `GET /api/sync`) 구현
   - [ ] OAuth 소셜 로그인 세션 및 Pro 구독 권한 기반 동기화 스토리지 쿼터 검증
 - [ ] **Step 4-7: 멀티 디바이스 동기화 및 복호화 End-to-End 통합 테스트**
-  - [ ] 기기 A(아이패드)에서 작성 후 암호화 저장 $\to$ 기기 B(노트북)에서 동일 마스터 키로 정상 복호화 확인
+  - [ ] 기기 A(아이패드)에서 작성 후 암호화 저장 -> 기기 B(노트북)에서 동일 마스터 키로 정상 복호화 확인
   - [ ] 서버 DB 덤프 검사를 통해 원문 텍스트 유출 0건(Zero-Knowledge) 무결성 검증
 
 ### 핵심 구현 명세 (Milestone 4 Specifications)
 - **0. 선제적 투기적 추론 파이프라인 (Speculative Pre-Inference Engine)**:
   - 펜 유휴 1.5초 감지 시 30초 증발 대기 시간 동안 백그라운드 선제적 필기 변환 및 가설 생성
   - 잉크 소멸 시점 0ms 제로 레이턴시 대필 및 펜 재터치 시 `AbortController` 캐시 무효화
-- **1. 로컬 Jev 기반 장기 맥락 자연어 검색 (`pg-jev` / `SemIf` 로컬 바인딩)**:
+- **1. 로컬 Jev 기반 장기 맥락 자연어 검색 (`localJevMatcher`)**:
   - 최근 5개 FIFO 제한을 극복하고 과거 수백 개 확정 노트 중 의미적 연관 맥락 Top-K 동적 추출
-  - 로컬 IPC 루프백 통신으로 네트워크 왕복 지연(190ms) 제거 및 무과금 맥락 링킹 달성
+  - 로컬 메모리 스캔으로 네트워크 왕복 지연(190ms) 제거 및 무과금 맥락 링킹 달성
 - **2. Zero-Knowledge E2EE 종단간 암호화 동기화 (Web Crypto API)**:
-  - Web Crypto API(AES-256-GCM)로 브라우저 로컬에서 노트를 암호화하고, 서버에는 암호문 블롭만 전송
+  - Web Crypto API(AES-256-GCM + PBKDF2)로 브라우저 로컬에서 노트를 암호화하고, 서버에는 암호문 블롭만 전송
   - 소셜 로그인과 결제 권한을 유지하면서도 서버 관리자/해커의 평문 열람을 원천 차단
-- **3. 파이프라인 책임 분리 (Separation of Concerns)**:
+- **3. 파이프라인 책임 분리 (Generator vs Discriminator)**:
   - *Tier 1*: 로컬 경량 한글 OCR (손글씨 획 -> 단어열 및 기호 토큰 추출)
-  - *Tier 2*: **전용 맥락 추론 SLM (`Jev-SLM`)** (단어열 + 직전 맥락 + 시간 메타데이터 -> 구조화 Jev JSON 프리미티브 도출)
-  - *Tier 3*: 상용 LLM 또는 로컬 생성기 (Jev 결정 프리미티브 기반 단일 완결 문장 합성)
-- **4. 합성 데이터셋 구축 (Teacher-Student Data Generation)**:
-  - Gemini를 교사 모델로 활용하여 불완전한 메모 단어열과 관계 기호(`->`, `~~`) 10,000건 생성 및 라벨링
-- **5. 경량 파인튜닝 (PEFT LoRA)**:
-  - `Qwen2.5-0.5B / 1.5B` 또는 `Gemma-2-2B`에 LoRA 파인튜닝 적용
-  - 정확한 JSON 출력 스키마 준수율 99% 이상 검증 (DeepEval / Ragas 기반 벤치마크)
-- **6. 온디바이스 양자화 및 서빙 (INT4 ONNX Runtime)**:
-  - INT4 가중치 양자화로 모델 크기 400MB 이하 압축
-  - 브라우저 WebAssembly 또는 백엔드 CPU에서 50ms 미만 초고속 추론 달성
+  - *Tier 2*: **한국어 특화 인코더 Jev 판별 엔진 (`KLUE-RoBERTa-large` INT8 ~330MB)** (5-Way 가설을 `batch_size=5` 1회 순전파로 로짓 산출 및 최적 문장 판별)
+  - *Tier 3*: 5-Way 직교 가설 생성기 (다양한 관점의 5개 후보 문장 동시 합성)
+- **4. 한국어 특화 인코더 선정**:
+  - `klue/roberta-large` INT8 ONNX (~330MB)
+  - 영어 중심 모델의 한국어 분절 왜곡을 방지하고 정확한 의미 인과 관계 포착
+- **5. Zero-Generation Token 배치 추론 최적화**:
+  - 생성 토큰 0개로 디코더 메모리 대역폭 병목 완전 제거
+  - 5개 후보를 단일 배치로 묶어 CPU 50-80ms 내 단 1회 전파로 최적 1문장 확정
+- **6. Hono 상주 서빙 (`onnxruntime-node`)**:
+  - C++ 네이티브 바인딩을 활용해 Hono 서버 프로세스 기동 시 1회 메모리 프리로드(`preload=True`)
+  - Python 별도 컨테이너 없이 TypeScript 단일 모노레포 사수 및 Cloud Run 무료 한도(월 18만 vCPU-초) 완벽 준수
 
 ---
 

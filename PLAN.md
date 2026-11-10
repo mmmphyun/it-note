@@ -161,6 +161,11 @@ sequenceDiagram
      * PostgreSQL 기반의 Jev 임베딩/의사결정 확장기(`realZachi/pg-jev`)를 클라우드 API가 아닌 **로컬 경량 Jev 인스턴스(IPC 또는 루프백 바인딩)**와 결합합니다.
      * 30초 펜 유휴 시간 동안 과거 수백 개의 확정 노트를 대상으로 자연어 조건/의미적 유사도(`pg-jev`의 Jev 의사결정 조건문)를 로컬에서 초고속(수 ms)으로 질의합니다.
      * 외부 API 호출 비용과 190ms 네트워크 왕복 지연 없이, "오늘 작성 중인 메모와 의미적으로 가장 밀접한 과거 맥락 Top-3"을 동적으로 추출하여 가설 생성기에 주입합니다.
+  3. **한국어 특화 인코더 Jev 판별 엔진 (Zero-Generation Token, Batch=5 1회 패스)**:
+     * 4B급 무거운 생성형 디코더 대신 **한국어 특화 인코더(`klue/roberta-large` INT8 ONNX ~330MB)**를 채택합니다.
+     * 5개 후보 문장과 사용자 맥락을 `batch_size=5`로 묶어 **단 1회 순전파(Forward Pass, 50~80ms CPU)**로 로짓을 추출하여 최적 1문장을 `Choice`합니다.
+     * Hono 백엔드 내부에서 C++ 네이티브 바인딩인 `onnxruntime-node`로 기동 시 1회 프리로드(`preload=True`)하여 서빙하며, Python 별도 컨테이너 없이 TypeScript 단일 모노레포를 100% 사수합니다.
+     * 디코딩 토큰 0개로 Cloud Run 무료 티어(월 18만 vCPU-초) 및 5초 SLA를 압도적으로 방어합니다.
 * **트레이드오프 및 리스크 분석 (Trade-offs & Red Teaming)**:
   * **불필요한 연산 낭비 위험**: 1.5초마다 투기적 실행을 돌릴 경우, 사용자가 생각을 가다듬으며 펜을 여러 번 뗐다 붙일 때 중복 연산 비용이 발생할 수 있습니다.
     * *완화책*: 로컬 경량 모델 도입 전까지는 클라우드 VLM 호출에 5~10초 Debounce 윈도우를 적용하고, 펜이 다시 닿으면 즉시 요청 취소(`req.signal.aborted`)를 처리합니다.
@@ -229,15 +234,15 @@ c:/work/it!note/
 * **Phase 4: `apps/server` Dual-Process (`Jev` + `VLM`) 추론 엔진 + `O` 확정 기반 본인 맥락 누적기(`profileEnricher.ts`) 연동 및 컨테이너 패키징**
 
 ### [v2 확장 백로그 및 고도화 — 마일스톤 4]
-* **마일스톤 4: 텍스트 기반 맥락 추론 특화 온디바이스 SLM 및 Zero-Knowledge E2EE 동기화**
+* **마일스톤 4: 한국어 특화 인코더 배치 Jev 엔진 및 Zero-Knowledge E2EE 동기화**
   - **선제적 투기적 실행 (Speculative Execution)**: 펜 유휴 1.5초 감지 즉시 30초 증발 대기 중 백그라운드 선제적 인식 및 가설 생성 (0ms 제로 레이턴시 대필).
-  - **로컬 Jev 장기 맥락 연동 (`pg-jev` / `SemIf`)**: 로컬 경량 Jev 엔진 기반 과거 확정 노트 자연어 검색 (최근 5개 FIFO 한계 극복, 과거 연관 맥락 Top-3 동적 결합).
-  - **Zero-Knowledge E2EE 종단간 암호화 동기화**: Web Crypto API(AES-256-GCM)로 브라우저 로컬에서 노트를 암호화하고, 서버에는 암호문 블롭만 전송하여 멀티 디바이스 동기화 및 Zero-Outbound 기밀성 동시 달성.
-  - **아키텍처 역할 분리**: 비전 OCR(필기->단어열)과 맥락 추론(단어열->Jev 의사결정)을 엄격히 격리.
-  - **특화 SLM 선정**: `Qwen2.5-0.5B / 1.5B-Instruct` 또는 `Gemma-2-2B-IT`.
-  - **합성 데이터셋 및 LoRA 파인튜닝**: Gemini 교사 모델로 구축한 1만 건의 `[단어열 + 직전 맥락 -> Jev JSON 프리미티브]` 데이터셋으로 LoRA 학습.
-  - **온디바이스 서빙 (ONNX / WebAssembly)**: INT4 양자화를 통해 모델 크기 400MB 이하, 로컬 CPU 레이턴시 50ms 이내 서빙 달성.
-  - **효과**: 완벽한 Zero-Knowledge 기밀성 보장, 기기 간 안전한 동기화, 외부 API 비용 0원, 0ms 반응 지연 달성.
+  - **로컬 Jev 장기 맥락 연동 (`localJevMatcher`)**: `pg-jev` 알고리즘 기반 과거 확정 노트 로컬 메모리 스캔 (최근 5개 FIFO 한계 극복, 과거 연관 맥락 Top-3 동적 결합).
+  - **Zero-Knowledge E2EE 종단간 암호화 동기화**: Web Crypto API(AES-256-GCM + PBKDF2)로 브라우저 로컬에서 노트를 암호화하고, 서버에는 암호문 블롭만 전송하여 멀티 디바이스 동기화 및 Zero-Knowledge 기밀성 동시 달성.
+  - **아키텍처 역할 분리**: 5-Way 직교 가설 생성(Generator)과 한국어 특화 인코더 판별(Discriminator)을 엄격히 격리.
+  - **한국어 특화 인코더 선정**: `klue/roberta-large` INT8 ONNX (~330MB).
+  - **Zero-Generation Token 배치 추론**: 5개 후보 문장을 `batch_size=5` 단일 텐서 1회 순전파(50-80ms CPU)로 로짓을 산출하여 최적 1문장을 `Choice`로 확정.
+  - **Hono 상주 서빙 (`onnxruntime-node`)**: C++ 네이티브 바인딩으로 기동 시 1회 프리로드(`preload=True`)하여 상주 서빙, Python 별도 컨테이너 없이 TypeScript 단일 모노레포 사수.
+  - **효과**: 완벽한 Zero-Knowledge 기밀성 보장, 기기 간 안전한 동기화, Cloud Run 무료 한도(월 18만 vCPU-초) 사수, 5초 SLA 압도적 준수.
 * Notion OAuth 데이터베이스 자동 푸시 및 Slack Webhook 연동
 * Pro 구독자 전용 심화 기능 확장 (장기 아카이브 시맨틱 검색 등)
 
@@ -285,17 +290,18 @@ stateDiagram-v2
   3. `SemIf` 기반 의사결정 판별기를 통해 "현재 작성 중인 키워드와 인과적·주제적으로 연관된 과거 노트인가?"를 판별하여 Top-3 맥락을 도출합니다.
   4. 도출된 Top-3 맥락을 선제 가설 생성기의 프롬프트에 동적 결합합니다.
 
-### 5.3. 3-Tier 온디바이스 파이프라인 (Vision OCR + SemIf SLM + Generation)
+### 5.3. 3-Tier 신경망 파이프라인 (Vision OCR + KLUE-RoBERTa 인코더 Jev + Generation)
 * **Tier 1: 로컬 경량 손글씨 OCR (Vision Recognizer)**:
   - 모델: `VerifiedIdiot/korean-handwriting-rec` (PP-OCRv5 ONNX ~15MB).
   - 역할: 캔버스 래스터 픽셀에서 한글 텍스트 및 기호(`->`, `~~`)를 추출합니다.
   - 실행 환경: 브라우저 WebAssembly 또는 백엔드 Node CPU.
-* **Tier 2: 전용 맥락 추론 SLM (`SemIf-OpenJev`)**:
-  - 모델: Qwen-1.5B 기반 INT4 양자화 모델 (약 400MB).
-  - 역할: 텍스트 토큰 간 인과 관계를 분석하여 구조화된 Jev 프리미티브(`Noul`, `Choice`)를 30ms 내 단일 포워드 패스로 결정합니다.
-* **Tier 3: 가설 문장 합성기 (Hypothesis Synthesizer)**:
-  - 역할: Jev가 확정한 의사결정 프리미티브를 바탕으로 단 1개의 완결된 한국어 가설 문장을 합성합니다.
-  - 모델: 로컬 2B SLM 또는 클라우드 Gemini Flash Fallback.
+* **Tier 2: 한국어 특화 인코더 Jev 판별 엔진 (`KLUE-RoBERTa-large` INT8 ~330MB)**:
+  - 런타임: Hono 백엔드 내부 C++ 바인딩 `onnxruntime-node` (기동 시 1회 메모리 프리로드).
+  - 역할: 5개 직교 가설 문장을 `batch_size=5` 단일 텐서로 묶어 **생성 토큰 0개의 1회 포워드 패스(50~80ms CPU)**로 로짓을 산출하고 최적 1문장을 `Choice`로 확정합니다.
+  - 효과: 4B 디코더 대비 메모리 1/10 수준, Cloud Run 무료 한도(월 18만 vCPU-초) 완벽 방어, 5초 SLA 압도적 준수.
+* **Tier 3: 5-Way 직교 가설 문장 합성기 (Hypothesis Synthesizer)**:
+  - 역할: 사용자 메모와 맥락을 바탕으로 5개의 직교 관점(프로젝트, 루틴, 피벗, 장기 맥락, 정의) 가설 문장을 생성합니다.
+  - 모델: 클라우드 Gemini Flash 또는 로컬 경량 생성기.
 
 ### 5.4. 데이터 인터페이스 및 스키마 규격 (`packages/shared`)
 ```typescript
