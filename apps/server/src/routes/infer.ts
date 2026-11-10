@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { InferRequestBody, InferResponseBody } from '@itnote/shared';
-import { runSystem1Jev, runJevReranker } from '../services/system1Jev';
+import { runSystem1Jev } from '../services/system1Jev';
+import { runNeuralJevReranker } from '../services/neuralJevEngine';
 import { generateCandidateHypothesisPool } from '../services/system2Writer';
 import { extractSessionId, getSession, userStore } from './auth';
 import { getUserContext } from '../services/profileEnricher';
@@ -64,8 +65,8 @@ inferRoute.post('/', async (c) => {
     request: body,
   });
 
-  // 3. Discriminator: Jev Reranker가 맥락 대조 후 최적 1문장 Choice 확정
-  const rerankerResult = runJevReranker({
+  // 3. Discriminator: Neural Jev Reranker가 맥락 대조 후 최적 1문장 Choice 확정
+  const rerankerResult = await runNeuralJevReranker({
     candidates: candidatePool,
     userContext: {
       persona: body.userContext?.persona,
