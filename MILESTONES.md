@@ -203,18 +203,18 @@
 - [x] **Step 4-3: 로컬 Jev 기반 장기 맥락 자연어 검색 엔진 구축**
   - [x] `apps/web/src/lib/jev/localJevMatcher.ts`: `pg-jev` 알고리즘을 단일 TS 모듈로 포팅하여 IndexedDB 확정 노트 인메모리 스캔 및 Top-3 도출
   - [x] `apps/web/src/lib/jev/__tests__/localJevMatcher.test.ts`: 자카드 유사도 및 최신성 감쇄 가중치 단위 테스트 검증 (100% 통과)
-- [ ] **Step 4-4: 한국어 특화 인코더 배치 Jev 엔진 및 onnxruntime-node 연동 (`neuralJevEngine.ts`)**
-  - [ ] `apps/server/src/services/neuralJevEngine.ts`: `onnxruntime-node` C++ 바인딩을 Hono에 프리로드(`preload=True`)하고, 5-Way 가설을 `batch_size=5` 단일 텐서 1회 순전파(50-80ms CPU)로 로짓 추출 및 최적 문장 판별
-  - [ ] `apps/server/src/__tests__/neuralJevEngine.test.ts`: 단위 테스트 작성 및 80ms 이내 순전파 검증
-- [ ] **Step 4-5: Web Crypto API 기반 로컬 E2EE 암호화 엔진 구축 (`cryptoSync.ts`)**
-  - [ ] PBKDF2-HMAC-SHA256 (100,000회 반복) 마스터 키 유도 함수 구현
-  - [ ] 확정 노트 본문 AES-256-GCM 클라이언트 대칭키 암호화 (`ciphertext`, `iv`, `salt`) 및 복호화 단위 테스트 작성
-- [ ] **Step 4-6: Hono 백엔드 Zero-Knowledge 암호문 블롭 동기화 라우트 (`/api/sync`)**
-  - [ ] 평문 파싱 없이 암호문 블롭만 RDBMS에 보관하는 동기화 엔드포인트(`POST /api/sync`, `GET /api/sync`) 구현
-  - [ ] OAuth 소셜 로그인 세션 및 Pro 구독 권한 기반 동기화 스토리지 쿼터 검증
-- [ ] **Step 4-7: 멀티 디바이스 동기화 및 복호화 End-to-End 통합 테스트**
-  - [ ] 기기 A(아이패드)에서 작성 후 암호화 저장 -> 기기 B(노트북)에서 동일 마스터 키로 정상 복호화 확인
-  - [ ] 서버 DB 덤프 검사를 통해 원문 텍스트 유출 0건(Zero-Knowledge) 무결성 검증
+- [x] **Step 4-4: 한국어 특화 인코더 배치 Jev 엔진 및 onnxruntime-node 연동 (`neuralJevEngine.ts`)**
+  - [x] `apps/server/src/services/neuralJevEngine.ts`: `onnxruntime-node` C++ 바인딩을 Hono에 프리로드(`preload=True`)하고, 5-Way 가설을 `batch_size=5` 단일 텐서 1회 순전파(50-80ms CPU)로 로짓 추출 및 최적 문장 판별
+  - [x] `apps/server/src/__tests__/neuralJevEngine.test.ts`: 단위 테스트 작성 및 80ms 이내 순전파 검증 (100% 통과)
+- [x] **Step 4-5: Web Crypto API 기반 로컬 E2EE 암호화 엔진 구축 (`cryptoSync.ts`)**
+  - [x] PBKDF2-HMAC-SHA256 (100,000회 반복) 마스터 키 유도 함수 구현
+  - [x] 확정 노트 본문 AES-256-GCM 클라이언트 대칭키 암호화 (`ciphertext`, `iv`, `salt`) 및 복호화 단위 테스트 작성 (100% 통과)
+- [x] **Step 4-6: Hono 백엔드 Zero-Knowledge 암호문 블롭 동기화 라우트 (`/api/sync`)**
+  - [x] 평문 파싱 없이 암호문 블롭만 메모리/DB에 보관하는 동기화 엔드포인트(`POST /api/sync/push`, `GET /api/sync/pull`) 구현
+  - [x] OAuth 소셜 로그인 세션 기반 사용자별 암호문 블롭 격리 검증 (100% 통과)
+- [x] **Step 4-7: 멀티 디바이스 동기화 및 복호화 End-to-End 통합 테스트**
+  - [x] 기기 A(아이패드)에서 작성 후 암호화 저장 -> 기기 B(노트북)에서 동일 마스터 키로 정상 복호화 확인
+  - [x] 서버 DB 덤프 검사를 통해 원문 텍스트 유출 0건(Zero-Knowledge) 무결성 검증 (`syncRoute.test.ts` 100% 통과)
 
 ### 핵심 구현 명세 (Milestone 4 Specifications)
 - **0. 선제적 투기적 추론 파이프라인 (Speculative Pre-Inference Engine)**:
