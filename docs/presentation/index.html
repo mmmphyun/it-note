@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>잇적 (It!note) — 마일스톤 3 최종 발표 자료</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&family=Nanum+Pen+Script&display=swap" rel="stylesheet" />
+  <style>
+    /*
+     * 디자인 시스템 원칙:
+     * 1. 벤토 그리드 및 카드 박스 전면 배제
+     * 2. 텍스트 크기(Size), 굵기(Weight), 여백(Whitespace), 직선(Hairline Dividers)으로만 정보 구획
+     * 3. 단일 테마 색상(#1C1917 Ink) + 종이 배경(#FAF8F5)
+     * 4. 단색 기호(Monochrome Glyphs: ✓, ✕, →, ●, ○, ▲, —)만 사용
+     * 5. 통과(초록 #15803D), 주의(노랑 #B45309), 위험(빨강 #DC2626) 상태 시그널만 제한적 허용
+     */
+
+    :root {
+      --bg-canvas: #FAF8F5;
+      --color-ink: #1C1917;
+      --color-muted: #78716C;
+      --color-border: #E7E5E4;
+      --color-border-heavy: #1C1917;
+      
+      --color-safe: #15803D;
+      --color-warn: #B45309;
+      --color-danger: #DC2626;
+
+      --font-sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-hand: "Nanum Pen Script", cursive, serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      background-color: #E7E5E4;
+      font-family: var(--font-sans);
+      color: var(--color-ink);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* 슬라이드 덱 뷰포트 */
+    .deck-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+      padding: 40px 20px 80px 20px;
+    }
+
+    /* 개별 슬라이드 (16:9 와이드스크린 규격) */
+    .slide {
+      width: 100%;
+      max-width: 1120px;
+      aspect-ratio: 16 / 9;
+      background-color: var(--bg-canvas);
+      padding: 64px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+    }
+
+    /* 상단 슬라이드 메타바 */
+    .slide-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .slide-category {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+    }
+
+    .slide-number {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--color-muted);
+    }
+
+    /* 본문 영역 */
+    .slide-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 24px 0;
+    }
+
+    /* 하단 슬라이드 푸터바 */
+    .slide-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 16px;
+      border-top: 1px solid var(--color-border);
+      font-size: 11px;
+      color: var(--color-muted);
+    }
+
+    /* 타이포그래피 계층 (폰트 크기 및 굵기로만 위계 부여) */
+    .hero-title {
+      font-size: 56px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-size: 38px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.25;
+      color: var(--color-ink);
+      margin-bottom: 28px;
+    }
+
+    .lead-text {
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--color-muted);
+      line-height: 1.6;
+    }
+
+    /* 직선 분할 레이아웃 시스템 */
+    .divider-horizontal {
+      width: 100%;
+      height: 1px;
+      background-color: var(--color-border);
+      margin: 20px 0;
+    }
+
+    .divider-heavy {
+      height: 2px;
+      background-color: var(--color-border-heavy);
+    }
+
+    /* 컬럼형 텍스트 그리드 (카드 배경 없이 직선으로만 구분) */
+    .column-row {
+      display: grid;
+      gap: 40px;
+      margin-top: 16px;
+    }
+
+    .col-3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .col-2 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .col-item {
+      display: flex;
+      flex-direction: column;
+      padding-top: 16px;
+      border-top: 1px solid var(--color-border-heavy);
+    }
+
+    .col-index {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--color-muted);
+      margin-bottom: 8px;
+    }
+
+    .col-title {
+      font-size: 19px;
+      font-weight: 700;
+      color: var(--color-ink);
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .col-desc {
+      font-size: 13.5px;
+      color: var(--color-muted);
+      line-height: 1.65;
+    }
+
+    /* 프로세스 체인 (수평 직선과 기호로 연결) */
+    .pipeline-chain {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--color-border-heavy);
+      border-bottom: 1px solid var(--color-border-heavy);
+      padding: 24px 0;
+      margin: 20px 0;
+    }
+
+    .pipeline-step {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .pipeline-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--color-muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .pipeline-val {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--color-ink);
+    }
+
+    .pipeline-sub {
+      font-size: 12px;
+      color: var(--color-muted);
+      margin-top: 2px;
+    }
+
+    .pipeline-arrow {
+      font-size: 16px;
+      color: var(--color-muted);
+      font-weight: 300;
+    }
+
+    /* 단색 기호 불릿 리스트 */
+    .linear-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 12px;
+    }
+
+    .linear-item {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      font-size: 15px;
+      border-bottom: 1px dashed var(--color-border);
+      padding-bottom: 10px;
+    }
+
+    .item-bullet {
+      font-weight: 700;
+      font-size: 13px;
+      flex-shrink: 0;
+      color: var(--color-ink);
+    }
+
+    .item-term {
+      font-weight: 700;
+      color: var(--color-ink);
+      min-width: 160px;
+    }
+
+    .item-detail {
+      color: var(--color-muted);
+      flex: 1;
+    }
+
+    /* 허용된 신호등 상태값 */
+    .status-safe {
+      color: var(--color-safe) !important;
+      font-weight: 700;
+    }
+
+    .status-warn {
+      color: var(--color-warn) !important;
+      font-weight: 700;
+    }
+
+    .status-danger {
+      color: var(--color-danger) !important;
+      font-weight: 700;
+    }
+
+    /* 인쇄 및 PDF 저장 모드 (@media print) */
+    @media print {
+      body {
+        background-color: #FFFFFF;
+      }
+      .deck-container {
+        padding: 0;
+        gap: 0;
+      }
+      .slide {
+        max-width: none;
+        width: 100vw;
+        height: 100vh;
+        aspect-ratio: auto;
+        box-shadow: none;
+        page-break-after: always;
+        page-break-inside: avoid;
+        padding: 48px 56px;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+
+    /* 브라우저 상단 인쇄 버튼 플로팅 안내 */
+    .print-control-bar {
+      position: fixed;
+      top: 16px;
+      right: 20px;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(28, 25, 23, 0.9);
+      backdrop-filter: blur(8px);
+      padding: 8px 16px;
+      border-radius: 40px;
+      color: #FAF8F5;
+      font-size: 12px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    }
+
+    .btn-print {
+      background: #FAF8F5;
+      color: #1C1917;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .btn-print:hover {
+      background: #E7E5E4;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 상단 원클릭 PDF 인쇄 컨트롤 바 (화면 전용, 인쇄 시 자동 숨김) -->
+  <div class="print-control-bar no-print">
+    <span>마일스톤 3 최종 발표 슬라이드 (8장)</span>
+    <button class="btn-print" onclick="window.print()">PDF로 인쇄 / 저장</button>
+  </div>
+
+  <div class="deck-container">
+
+    <!-- Slide 1: Cover -->
+    <section class="slide">
+      <header class="slide-header">
+        <span class="slide-category">CAPSTONE PROJECT · MILESTONE 3 FINAL</span>
+        <span class="slide-number">01 / 08</span>
+      </header>
+
+      <div class="slide-body">
+        <h1 class="hero-title">잇적 (It!note)</h1>
+        <p class="lead-text" style="font-size: 22px; color: var(--color-ink); margin-bottom: 36px;">
+          생각이 증발하기 전, 단 하나의 문장으로 잇다
+        </p>
+        
+        <div class="divider-heavy"></div>
+
+        <div class="column-row col-3" style="margin-top: 24px;">
+          <div class="col-item">
+            <span class="col-index">ARCHITECTURE</span>
+            <span class="col-title">End-to-End TypeScript</span>
+            <p class="col-desc">Svelte 5 Runes · Hono Web Standard · Monorepo</p>
+          </div>
+          <div class="col-item">
+            <span class="col-index">INTERACTION</span>
+            <span class="col-title">Zero-UI & Stylus</span>
+            <p class="col-desc">120Hz 포인터 버퍼링 · 30초 유휴 60초 증발 엔진</p>
+          </div>
+          <div class="col-item">
+            <span class="col-index">INTELLIGENCE</span>
+            <span class="col-title">Dual-Process AI</span>
+            <p class="col-desc">System 1 Jev 프리미티브 · System 2 단일 가설 대필</p>
+          </div>
+        </div>
+      </div>
+
+      <footer class="slide-footer">
+        <span>DevSecOps 아키텍트 지망생 · 박민현</span>
+        <span>https://it-note-app.web.app</span>
+      </footer>
+    </section>
+
+    <!-- Slide 2: Problem Definition -->
+    <section class="slide">
+      <header class="slide-header">
+        <span class="slide-category">01 · PROBLEM DEFINITION</span>
+        <span class="slide-number">02 / 08</span>
+      </header>
+
+      <div class="slide-body">
+        <h2 class="section-title">디지털 메모 앱의 3대 모순</h2>
+        <p class="lead-text">
+          생각을 적으려는 찰나를 방해하는 UI 공해와 영구 박제된 낙서의 역설
+        </p>
+
+        <div class="column-row col-3" style="margin-top: 36px;">
+          <div class="col-item">
+            <span class="col-index">CONTRADICTION 01</span>
+            <span class="col-title">툴바의 공해</span>
+            <p class="col-desc">
+              펜을 쥘 때마다 수십 개의 브러시, 굵기 팔레트, 모달창이 시각적 인지 부하를 강요하여 생각의 흐름을 단절시킵니다.
+            </p>
+          </div>
+          <div class="col-item">
+            <span class="col-index">CONTRADICTION 02</span>
+            <span class="col-title">낙서의 영구 박제</span>
+            <p class="col-desc">
+              버려져야 할 사소한 잡념과 오탈자까지 화면에 영구 잔존하여, 사용자는 지우개 도구로 삭제를 반복하는 피로를 겪습니다.
+            </p>
+          </div>
+          <div class="col-item">
+            <span class="col-index">CONTRADICTION 03</span>
+            <span class="col-title">맥락의 증발</span>
+            <p class="col-desc">
+              파편화된 단어 메모는 작성 직후 즉시 잊혀지며, 사용자가 직접 수동으로 정리하기 전까지는 발전하지 못합니다.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <footer class="slide-footer">
+        <span>It!note Architecture Manifesto</span>
+        <span>Cognitive Friction Reduction</span>
+      </footer>
+    </section>
+
+    <!-- Slide 3: Core Principles -->
+    <section class="slide">
+      <header class="slide-header">
+        <span class="slide-category">02 · CORE PRINCIPLES</span>
+        <span class="slide-number">03 / 08</span>
+      </header>
+
+      <div class="slide-body">
+        <h2 class="section-title">화면에는 백지와 잉크만 남긴다</h2>
+        <p class="lead-text">
+          Zero-UI 헌법과 잉크 증발을 통한 무의식적 몰입 환경 보장
+        </p>
+
+        <ul class="linear-list" style="margin-top: 28px;">
+          <li class="linear-item">
+            <span class="item-bullet">●</span>
+            <span class="item-term">Zero-UI 헌법 준수</span>
+            <span class="item-detail">
+              메인 필기 화면에 헤더, 푸터, 내비게이션, 버튼, 모달 0개 엄수. 유일한 시각 요소는 미색 캔버스와 희미한 워터마크뿐입니다.
+            </span>
+          </li>
+          <li class="linear-item">
+            <span class="item-bullet">●</span>
+            <span class="item-term">120Hz Pure Stylus</span>
+            <span class="item-detail">
+              Svelte 5 반응형 리렌더링 병목을 차단하기 위해 PointerEvent 펜 좌표를 순수 TypeScript 버퍼 및 2D Canvas로 직결 처리합니다.
+            </span>
+          </li>
+          <li class="linear-item">
+            <span class="item-bullet">●</span>
+            <span class="item-term">30초 대기 · 60초 증발</span>
+            <span class="item-detail">
+              펜을 떼고 30초 유휴 후 60초 동안 서서히 투명해집니다. 이미 증발한 키워드라도 Jev가 직전 사고 흐름과의 연속성을 판별합니다.
+            </span>
+          </li>
+          <li class="linear-item">
+            <span class="item-bullet">●</span>
+            <span class="item-term">지우개 없음의 원칙</span>
+            <span class="item-detail">
+              사용자의 취소선이나 덧칠은 삭제가 아닌 추론 컨텍스트(선택 변경 SELECTION_PIVOT vs 단순 오타)로 승화되어 AI에 전달됩니다.
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <footer class="slide-footer">
+        <span>Zero-UI Hard Guards</span>
+        <span>apps/web/src/lib/canvas/</span>
+      </footer>
+    </section>
+
+    <!-- Slide 4: Dual-Process AI Inference -->
+    <section class="slide">
+      <header class="slide-header">
+        <span class="slide-category">03 · DUAL-PROCESS AI</span>
+        <span class="slide-number">04 / 08</span>
+      </header>
+
+      <div class="slide-body">
+        <h2 class="section-title">단 1개의 완결된 문장만 적는다</h2>
+        <p class="lead-text">
+          객관식 보기를 나열하지 않고, 최우선 맥락에 맞춘 단일 가설 질문을 한글 획순으로 대필
+        </p>
+
+        <div class="pipeline-chain">
+          <div class="pipeline-step">
+            <span class="pipeline-label">INPUT</span>
+            <span class="pipeline-val">필기 획 / 취소선</span>
+            <span class="pipeline-sub">Zero-Retention Crop</span>
+          </div>
+          <span class="pipeline-arrow">→</span>
+          <div class="pipeline-step">
+            <span class="pipeline-label">SYSTEM 1</span>
+            <span class="pipeline-val">Jev / OpenJev</span>
+            <span class="pipeline-sub">Noul · Choice · Box</span>
+          </div>
+          <span class="pipeline-arrow">→</span>
+          <div class="pipeline-step">
+            <span class="pipeline-label">SYSTEM 2</span>
+            <span class="pipeline-val">Writer Engine</span>
+            <span class="pipeline-sub">단 1문장 한국어 질문 대필</span>
+          </div>
+          <span class="pipeline-arrow">→</span>
+          <div class="pipeline-step">
+            <span class="pipeline-label">FEEDBACK</span>
+            <span class="pipeline-val">O / X 제스처 루프</span>
+            <span class="pipeline-sub">흡수(Sink-in) vs 기각(Pivot)</span>
+          </div>
+        </div>
+
+        <div class="column-row col-2" style="margin-top: 12px;">
+          <div class="col-item">
+            <span class="col-title status-safe">동그라미 (O) 제스처 — 종이 속 흡수</span>
+            <p class="col-desc">
+              AI 제안 문장에 사용자가 O를 그리면 문장이 종이 아래로 스며들며 사라지고, 추출된 핵심 어휘가 EvolvingContext에 영구 누적됩니다.
+            </p>
+          </div>
+          <div class="col-item">
+            <span class="col-title status-danger">엑스 (X) 제스처 — 오답 제약 피벗</span>
+            <p class="col-desc">
+              AI 제안 문장에 X를 그리면 해당 문장이 오답 목록(Negative Constraint)에 즉시 추가되며, 이전 방향을 배제한 다음 최선책 문장 1개를 새로 추론합니다.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <footer class="slide-footer">
+        <span>Dual-Process Inference Chain</span>
+        <span>system1Jev.ts → system2Writer.ts</span>
+      </footer>
+    </section>
+
+    <!-- Slide 5: Onboarding & Vision Calibration -->
+    <section class="slide">
+      <header class="slide-header">
+        <span class="slide-category">04 · ONBOARDING & VISION</span>
+        <span class="slide-number">05 / 08</span>
+      </header>
+
+      <div class="slide-body">
+        <h2 class="section-title">자필 서약 캘리브레이션</h2>
+        <p class="lead-text">
+          체크박스를 클릭하는 대신, 종이 위에 직접 동의를 적는 Gemini 멀티모달 실시간 비전 판독
+        </p>
+
+        <div class="column-row col-2" style="margin-top: 24px;">
+          <div class="col-item">
+            <span class="col-index">STRUCTURED ONBOARDING</span>
+            <span class="col-title">7단계 1문 1화면 집중형 설계</span>
+            <p class="col-desc">
+              한 페이지 일괄 설문의 피로도를 차단하기 위해 필수 설문(직무, 몰입 주제, 주간 시간표)과 선택 설문(사이드 관심사, 취미, 문체 성향)을 분리하고 건너뛰기 설득 모달을 제공합니다.
+            </p>
+          </div>
+          <div class="col-item">
+            <span class="col-index">MULTIMODAL VISION CALIBRATION</span>
+            <span class="col-title">Gemini 3.5 Flash Lite 실시간 검증</span>
+            <p class="col-desc">
+              사용자가 캔버스에 쓴 손글씨를 불투명 배경 JPEG로 즉시 인코딩하여 4단 감정 분류 JSON Schema로 엄밀히 판정합니다.
+            </p>
+          </div>
+        </div>
+
+        <ul class="linear-list" style="margin-top: 24px;">
+          <li class="linear-item">
+            <span class="item-bullet status-safe">✓</span>
+            <span class="item-term status-safe">AGREED (동의)</span>
+            <span class="item-detail">'동의', '네', 'ㅇㅇ', 'yes', 'O' 등 긍정 답변 확인 시 [시작하기] 버튼 즉시 활성화</span>
+          </li>
+          <li class="linear-item">
+            <span class="item-bullet status-danger">✕</span>
+            <span class="item-term status-danger">DISAGREED (거부)</span>
+            <span class="item-detail">'아니오', '싫어', 'ㄴㄴ', 'no', 'X' 등 거부 의사 판별 시 진입 차단 안내</span>
+          </li>
+          <li class="linear-item">
+            <span class="item-bullet status-warn">▲</span>
+            <span class="item-term status-warn">IRRELEVANT (무관/모호)</span>
+            <span class="item-detail">'몰라', '사과', '안녕' 등 동의 여부 판별 불가능 답변에 대한 재확인 요청</span>
+          </li>
+        </ul>
+      </div>
+
+      <footer class="slide-footer">
+        <span>Multimodal Vision Verification</span>
+        <span>consentVerifier.ts · ProfileSetup.svelte</span>
+      </footer>
+    </section>
+
+    <!-- Slide 6: Security & Billing Hardening -->
+    <section class="slide">
+      <header class="slide-header">
+        <span class="slide-category">05 · SECURITY & DEFENSE</span>
+        <span class="slide-number">06 / 08</span>
+      </header>
+
+      <div class="slide-body">
+        <h2 class="section-title">금융 무결성과 제로 시크릿</h2>
+        <p class="lead-text">
+          토스페이먼츠 호환 결제 승인 위변조 방어 및 원본 손글씨 휘발 처리
+        </p>
+
+        <div class="column-row col-3" style="margin-top: 32px;">
+          <div class="col-item">
+            <span class="col-index">DEFENSE 01</span>
+            <span class="col-title">금액 위변조 원천 방어</span>
+            <p class="col-desc">
+              사전 주문 등록(<code style="font-size: 11px;">/prepare</code>)으로 정가 9,900원을 기록하고, 승인 시 변조된 금액 수신 시 <span class="status-danger">400 AMOUNT_MISMATCH</span>로 차단합니다.
+            </p>
+          </div>
+          <div class="col-item">
+            <span class="col-index">DEFENSE 02</span>
+            <span class="col-title">프로덕션 Mock 차단</span>
+            <p class="col-desc">
+              운영 환경에서 비인가 <code style="font-size: 11px;">mock_</code> 결제 시도 시 <span class="status-danger">403 MOCK_PAYMENT_FORBIDDEN</span>으로 영구 Pro 권한 탈취를 차단합니다.
+            </p>
+          </div>
+          <div class="col-item">
+            <span class="col-index">DEFENSE 03</span>
+            <span class="col-title">Webhook 멱등성 보장</span>
+            <p class="col-desc">
+              동일 결제 이벤트의 네트워크 재시도 수신 시 <code style="font-size: 11px;">Idempotency-Key</code> 캐시를 대조하여 중복 청구를 원천 차단합니다.
+            </p>
+          </div>
+        </div>
+
+        <ul class="linear-list" style="margin-top: 24px;">
+          <li class="linear-item">
+            <span class="item-bullet">●</span>
+            <span class="item-term">Zero-Retention 정책</span>
+            <span class="item-detail">추론용 크롭 이미지는 디스크(fs.writeFile)에 기록하지 않고 메모리 처리 후 즉시 파기합니다.</span>
+          </li>
+          <li class="linear-item">
+            <span class="item-bullet">●</span>
+            <span class="item-term">인메모리 누수 방어</span>
+            <span class="item-detail">30분 미체결 주문 및 2,000건 초과 웹훅 캐시, 1,000개 초과 IP 로그를 자동 수거하여 프로세스 OOM을 차단합니다.</span>
+          </li>
+        </ul>
+      </div>
+
+      <footer class="slide-footer">
+        <span>Payment & Data Hardening</span>
+        <span>billing.ts · rateLimiter.ts</span>
+      </footer>
+    </section>
+
+    <!-- Slide 7: Verification & Test Metrics -->
+    <section class="slide">
+      <header class="slide-header">
+        <span class="slide-category">06 · VERIFICATION METRICS</span>
+        <span class="slide-number">07 / 08</span>
+      </header>
+
+      <div class="slide-body">
+        <h2 class="section-title">13개 스위트 100% 무결 검증</h2>
+        <p class="lead-text">
+          단 하나의 테스트 실패나 린트 경고도 허용하지 않는 자동화 하드가드
+        </p>
+
+        <div class="column-row col-3" style="margin-top: 32px;">
+          <div class="col-item">
+            <span class="col-index">AUTOMATION 01</span>
+            <span class="col-title status-safe">67 Tests Passed</span>
+            <p class="col-desc">
+              O/X 제스처 기하학, 30s/60s 잉크 상태머신, Jev 스키마 어댑터, 결제 멱등성 등 총 13개 스위트 67개 전건 무결 통과.
+            </p>
+          </div>
+          <div class="col-item">
+            <span class="col-index">AUTOMATION 02</span>
+            <span class="col-title status-safe">Strict TypeScript</span>
+            <p class="col-desc">
+              모노레포 전 워크스페이스(shared, server, web) strict mode 적용. 0 errors, 0 warnings 달성.
+            </p>
+          </div>
+          <div class="col-item">
+            <span class="col-index">AUTOMATION 03</span>
+            <span class="col-title status-safe">Git Pre-commit Guard</span>
+            <p class="col-desc">
+              매 커밋마다 Gitleaks 시크릿 유출 검사, Canvas Zero-UI 정규식 검사, Vitest 단위 테스트를 강제 실행합니다.
+            </p>
+          </div>
+        </div>
+
+        <div class="divider-horizontal" style="margin-top: 32px;"></div>
+
+        <div class="column-row col-2" style="margin-top: 8px;">
+          <div>
+            <span style="font-size: 11px; font-weight: 700; color: var(--color-muted); letter-spacing: 0.1em;">TEST RUNNER</span>
+            <p style="font-size: 14px; font-weight: 600; color: var(--color-ink); margin-top: 2px;">Vitest v2.1.9 (882ms, 0 failures)</p>
+          </div>
+          <div>
+            <span style="font-size: 11px; font-weight: 700; color: var(--color-muted); letter-spacing: 0.1em;">BUNDLE BUILD</span>
+            <p style="font-size: 14px; font-weight: 600; color: var(--color-ink); margin-top: 2px;">Vite Production Minification (142 modules transformed)</p>
+          </div>
+        </div>
+      </div>
+
+      <footer class="slide-footer">
+        <span>No Code without Test</span>
+        <span>.githooks/pre-commit · vitest</span>
+      </footer>
+    </section>
+
+    <!-- Slide 8: Roadmap & Delivery -->
+    <section class="slide">
+      <header class="slide-header">
+        <span class="slide-category">07 · ROADMAP & CONCLUSION</span>
+        <span class="slide-number">08 / 08</span>
+      </header>
+
+      <div class="slide-body">
+        <h2 class="section-title">초경량 온디바이스 SLM으로의 진화</h2>
+        <p class="lead-text">
+          마일스톤 3 완성과 향후 v2 오프라인 지능 고도화 로드맵
+        </p>
+
+        <div class="pipeline-chain" style="margin-top: 32px;">
+          <div class="pipeline-step">
+            <span class="pipeline-label">PHASE 1 (COMPLETED)</span>
+            <span class="pipeline-val status-safe">✓ Cloud Vision & LLM</span>
+            <span class="pipeline-sub">Svelte 5 + Hono + Gemini + Toss PG</span>
+          </div>
+          <span class="pipeline-arrow">→</span>
+          <div class="pipeline-step">
+            <span class="pipeline-label">PHASE 2 (V2 ROADMAP)</span>
+            <span class="pipeline-val">Tier 1 로컬 한글 OCR</span>
+            <span class="pipeline-sub">Wasm 온디바이스 좌표 추출 (&lt; 50ms)</span>
+          </div>
+          <span class="pipeline-arrow">→</span>
+          <div class="pipeline-step">
+            <span class="pipeline-label">PHASE 3 (V3 ROADMAP)</span>
+            <span class="pipeline-val">Tier 2 Jev-SLM 파인튜닝</span>
+            <span class="pipeline-sub">Gemma-2-2B LoRA 오프라인 의사결정</span>
+          </div>
+        </div>
+
+        <div class="column-row col-2" style="margin-top: 20px;">
+          <div class="col-item">
+            <span class="col-index">LIVE DEPLOYMENT</span>
+            <span class="col-title" style="font-size: 16px;">https://it-note-app.web.app</span>
+            <p class="col-desc">Firebase Hosting & Cloud Functions (asia-northeast3)</p>
+          </div>
+          <div class="col-item">
+            <span class="col-index">OPEN SOURCE REPO</span>
+            <span class="col-title" style="font-size: 16px;">https://github.com/mmmphyun/it-note</span>
+            <p class="col-desc">Public Repository · MIT License · 44+ Commits</p>
+          </div>
+        </div>
+      </div>
+
+      <footer class="slide-footer">
+        <span>잇적 (It!note) 최종 발표를 마칩니다. 감사합니다.</span>
+        <span>2026. 11. 10</span>
+      </footer>
+    </section>
+
+  </div>
+
+</body>
+</html>
