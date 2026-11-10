@@ -229,14 +229,15 @@ c:/work/it!note/
 * **Phase 4: `apps/server` Dual-Process (`Jev` + `VLM`) 추론 엔진 + `O` 확정 기반 본인 맥락 누적기(`profileEnricher.ts`) 연동 및 컨테이너 패키징**
 
 ### [v2 확장 백로그 및 고도화 — 마일스톤 4]
-* **마일스톤 4: 텍스트 기반 맥락 추론 특화 온디바이스 SLM (LoRA + INT4 ONNX) 및 선제적 파이프라인**
+* **마일스톤 4: 텍스트 기반 맥락 추론 특화 온디바이스 SLM 및 Zero-Knowledge E2EE 동기화**
   - **선제적 투기적 실행 (Speculative Execution)**: 펜 유휴 1.5초 감지 즉시 30초 증발 대기 중 백그라운드 선제적 인식 및 가설 생성 (0ms 제로 레이턴시 대필).
   - **로컬 Jev 장기 맥락 연동 (`pg-jev` / `SemIf`)**: 로컬 경량 Jev 엔진 기반 과거 확정 노트 자연어 검색 (최근 5개 FIFO 한계 극복, 과거 연관 맥락 Top-3 동적 결합).
+  - **Zero-Knowledge E2EE 종단간 암호화 동기화**: Web Crypto API(AES-256-GCM)로 브라우저 로컬에서 노트를 암호화하고, 서버에는 암호문 블롭만 전송하여 멀티 디바이스 동기화 및 Zero-Outbound 기밀성 동시 달성.
   - **아키텍처 역할 분리**: 비전 OCR(필기->단어열)과 맥락 추론(단어열->Jev 의사결정)을 엄격히 격리.
   - **특화 SLM 선정**: `Qwen2.5-0.5B / 1.5B-Instruct` 또는 `Gemma-2-2B-IT`.
   - **합성 데이터셋 및 LoRA 파인튜닝**: Gemini 교사 모델로 구축한 1만 건의 `[단어열 + 직전 맥락 -> Jev JSON 프리미티브]` 데이터셋으로 LoRA 학습.
   - **온디바이스 서빙 (ONNX / WebAssembly)**: INT4 양자화를 통해 모델 크기 400MB 이하, 로컬 CPU 레이턴시 50ms 이내 서빙 달성.
-  - **효과**: 프라이버시 100% 보장(Zero-Retention), 외부 API 호출 비용 0원, 반응 지연 0ms, AI 엔지니어링 포트폴리오 확립.
+  - **효과**: 완벽한 Zero-Knowledge 기밀성 보장, 기기 간 안전한 동기화, 외부 API 비용 0원, 0ms 반응 지연 달성.
 * Notion OAuth 데이터베이스 자동 푸시 및 Slack Webhook 연동
 * Pro 구독자 전용 심화 기능 확장 (장기 아카이브 시맨틱 검색 등)
 
@@ -356,3 +357,62 @@ export interface PrefetchedHypothesisSlot {
 * **로컬 DB 용량 증가 시 질의 지연 방지**:
   - 확정 노트가 1,000건 이상 누적될 때 로컬 스캔 레이턴시가 증가할 위험을 차단합니다.
   - *대책*: 최근 30일 이내 노트 또는 도메인 태그 기준 1차 필터링 후 상위 100건 대상 로컬 Jev 판별을 수행합니다.
+
+### 5.7. [ADR] Zero-Knowledge 종단간 암호화(E2EE) 동기화 명세
+* **논의 배경 및 딜레마 (Context & Motivation)**:
+  - 브라우저 로컬 저장소(IndexedDB)에만 모든 메모를 격리 보관할 경우, 브라우저 캐시 삭제 시 데이터가 영구 유실(Data Loss)되는 단일 장애점(SPOF)이 발생합니다.
+  - 또한 다중 기기(아이패드 필기 $\to$ 노트북 데스크 확인) 간 동기화가 불가능해져, 기구축된 OAuth 소셜 로그인과 토스페이먼츠 PG 결제의 존재 의의가 퇴색됩니다.
+  - 따라서 서버가 평문(Plaintext)을 절대 알 수 없는 **Zero-Knowledge E2EE 동기화 파이프라인**을 구축하여 기밀성과 멀티 디바이스 연속성을 동시에 달성합니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 사용자 (브라우저)
+    participant Crypto as Web Crypto API (로컬)
+    participant Server as 백엔드 동기화 API (/api/sync)
+    participant DB as 서버 RDBMS (PostgreSQL)
+
+    Note over User,Crypto: [1. 확정 노트 저장 시 로컬 암호화]
+    User->>Crypto: 메모 확정 (O 마킹)
+    Crypto->>Crypto: PBKDF2 마스터 키 유도 + AES-256-GCM 암호화
+    Crypto->>Server: POST /api/sync (Ciphertext Blob + IV + Salt)
+    Server->>DB: 암호문 블롭 그대로 영구 저장
+    Note over Server,DB: 서버 관리자/해커는 평문 열람 불가 (Zero-Knowledge)
+
+    Note over User,Crypto: [2. 다른 기기 로그인 시 복호화 동기화]
+    User->>Server: GET /api/sync (최신 동기화 요청)
+    Server-->>Crypto: 암호문 블롭 배열 반환
+    Crypto->>Crypto: 로컬 마스터 키로 복호화 후 IndexedDB 캐싱
+    Crypto->>User: 캔버스/데스크에 평문 노트 렌더링
+```
+
+* **핵심 구현 사양 (Cryptographic Specifications)**:
+  1. **표준 Web Crypto API 활용**: 외부 무거운 암호화 라이브러리 없이 브라우저 내장 네이티브 암호화 가속 엔진을 사용하여 번들 오버헤드 0을 유지합니다.
+  2. **키 유도 함수 (KDF)**: 사용자 패스프레이즈 및 16바이트 난수 Salt를 바탕으로 `PBKDF2-HMAC-SHA256` (100,000회 반복)를 수행하여 256비트 대칭키를 유도합니다.
+  3. **대칭 암호화**: `AES-256-GCM`을 채택하여 데이터 기밀성과 함께 인증 태그(Auth Tag)를 통한 위변조 방지(Integrity)를 보장합니다.
+  4. **역할의 엄격한 분리**:
+     - OAuth 소셜 로그인: 신원 확인, Pro 구독 권한 및 동기화 스토리지 쿼터 검증.
+     - 마스터 복호화 키: 서버로 절대 전송되지 않고 클라이언트 세션 메모리에서만 유지.
+
+* **데이터 스키마 규격 (`packages/shared/src/crypto.ts`)**:
+```typescript
+export interface EncryptedNotePayload {
+  id: string;
+  userId: string;
+  ciphertext: string; // Base64 인코딩된 암호문 본문
+  iv: string;         // Base64 인코딩된 12바이트 초기화 벡터
+  salt: string;       // Base64 인코딩된 16바이트 솔트
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SyncPushRequest {
+  notes: EncryptedNotePayload[];
+  lastSyncedAt: number;
+}
+
+export interface SyncPullResponse {
+  notes: EncryptedNotePayload[];
+  serverTimestamp: number;
+}
+```

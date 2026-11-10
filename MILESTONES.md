@@ -188,26 +188,34 @@
 
 ---
 
-## 마일스톤 4 (v2 고도화 / AI 엔지니어링): 텍스트 맥락 추론 특화 온디바이스 SLM 및 선제적 파이프라인
+## 마일스톤 4 (v2 고도화 / AI 엔지니어링): 텍스트 맥락 추론 특화 온디바이스 SLM 및 Zero-Knowledge E2EE 동기화
 
-**목표**: 비전 OCR과 언어 맥락 추론을 분리하고, 텍스트 토큰 간 의미론적 관계 및 다중 턴 맥락 결합을 전담하는 0.5B~2B급 특화 SLM 및 투기적 실행(Speculative Execution) 엔진을 온디바이스(CPU/ONNX)로 구축하여 제로 레이턴시(0ms), API 비용 0원, 프라이버시 100%를 달성합니다.
+**목표**: 비전 OCR과 언어 맥락 추론을 분리하고, 텍스트 토큰 간 의미론적 관계 및 다중 턴 맥락 결합을 전담하는 0.5B~2B급 특화 SLM, 투기적 실행(Speculative Execution) 엔진, 그리고 Web Crypto API 기반 Zero-Knowledge E2EE 종단간 암호화 동기화 계층을 구축하여 제로 레이턴시(0ms), API 비용 0원, 완벽한 Zero-Knowledge 기밀성을 달성합니다.
 
 ### 상세 구현 체크리스트 (Milestone 4 Executable Checklist)
-- [ ] **Step 4-1: 클라이언트 1.5초 펜 유휴 감지 및 AbortController 상태 머신 구축**
-  - [ ] `apps/web/src/lib/canvas/speculativePipeline.ts` 신설: 1.5초 유휴 디바운스 타이머 및 `pointerdown` 발생 시 즉각 중단(`AbortController.abort()`) 로직 구현
-  - [ ] `packages/shared/src/speculative.ts` 신설: `SpeculativeInferenceRequest`, `PrefetchedHypothesisSlot` 인터페이스 정의
-  - [ ] `apps/web/src/lib/canvas/__tests__/speculativePipeline.test.ts` 작성: 가상 타이머 1.5초 후 선제 요청 방출 및 재터치 시 취소 토큰 무결성 검증
-- [ ] **Step 4-2: 프리페치 캐시 풀 및 0ms 트랜지션 연동**
-  - [ ] `PaperCanvas.svelte` 라이프사이클 연동: 잉크 투명도 0.0 도달 프레임에서 대기 없이 캐시된 문장을 즉시 `tegaki` 한글 획순 대필로 연결
-  - [ ] 최소 호출 간격 3초 쓰로틀(Throttle) 및 네트워크 실패 시 90초 만료 시점 온디맨드 추론으로 조용한 폴백(Silent Fallback) 구현
-- [ ] **Step 4-3: 로컬 Jev 기반 장기 맥락 자연어 검색 엔진 구축**
-  - [ ] 로컬 SQLite / 인메모리 확정 노트 인덱스 구축 (`confirmed_notes` 테이블)
-  - [ ] 30초 펜 유휴 시간 동안 로컬 IPC 루프백으로 과거 수백 개 노트 중 시맨틱 연관 맥락 Top-3 동적 추출 알고리즘 구현
-  - [ ] 최근 5개 FIFO 대비 과거 장기 맥락 보존율 벤치마크 테스트 작성
-- [ ] **Step 4-4: 3-Tier 온디바이스 모델 통합 및 레이턴시 벤치마크**
+- [x] **Step 4-1: 클라이언트 1.5초 펜 유휴 감지 및 AbortController 상태 머신 구축**
+  - [x] `apps/web/src/lib/canvas/speculativePipeline.ts`: 1.5초 유휴 디바운스 타이머 및 `pointerdown` 발생 시 즉각 중단(`AbortController.abort()`) 로직 구현
+  - [x] `packages/shared/src/speculative.ts`: `SpeculativeInferenceRequest`, `PrefetchedHypothesisSlot` 인터페이스 정의
+  - [x] `apps/web/src/lib/canvas/__tests__/speculativePipeline.test.ts`: 가상 타이머 1.5초 후 선제 요청 방출 및 재터치 시 취소 토큰 무결성 검증 (100% 통과)
+- [x] **Step 4-2: 프리페치 캐시 풀 및 0ms 트랜지션 연동**
+  - [x] `PaperCanvas.svelte` 라이프사이클 연동: 잉크 투명도 0.0 도달 프레임에서 대기 없이 캐시된 문장을 즉시 `tegaki` 한글 획순 대필로 연결
+  - [x] 최소 호출 간격 3초 쓰로틀(Throttle) 및 네트워크 실패 시 90초 만료 시점 온디맨드 추론으로 조용한 폴백(Silent Fallback) 구현
+- [x] **Step 4-3: 로컬 Jev 기반 장기 맥락 자연어 검색 엔진 구축**
+  - [x] `apps/web/src/lib/jev/localJevMatcher.ts`: `pg-jev` 알고리즘을 단일 TS 모듈로 포팅하여 IndexedDB 확정 노트 인메모리 스캔 및 Top-3 도출
+  - [x] `apps/web/src/lib/jev/__tests__/localJevMatcher.test.ts`: 자카드 유사도 및 최신성 감쇄 가중치 단위 테스트 검증 (100% 통과)
+- [ ] **Step 4-4: 3-Tier 온디바이스 모델(WebGPU / ONNX) 통합 및 레이턴시 벤치마크**
   - [ ] Tier 1: `korean-handwriting-rec` (PP-OCRv5 ONNX ~15MB) 획-텍스트 변환기 연동
   - [ ] Tier 2: `SemIf-OpenJev` (Qwen-1.5B INT4) CPU 30ms 단일 포워드 패스 로짓 판독기 연동
   - [ ] Tier 3: 로컬 가설 합성기 결합으로 완전한 Zero-Outbound 기밀성 및 0ms 체감 지연 완성
+- [ ] **Step 4-5: Web Crypto API 기반 로컬 E2EE 암호화 엔진 구축 (`cryptoSync.ts`)**
+  - [ ] PBKDF2-HMAC-SHA256 (100,000회 반복) 마스터 키 유도 함수 구현
+  - [ ] 확정 노트 본문 AES-256-GCM 클라이언트 대칭키 암호화 (`ciphertext`, `iv`, `salt`) 및 복호화 단위 테스트 작성
+- [ ] **Step 4-6: Hono 백엔드 Zero-Knowledge 암호문 블롭 동기화 라우트 (`/api/sync`)**
+  - [ ] 평문 파싱 없이 암호문 블롭만 RDBMS에 보관하는 동기화 엔드포인트(`POST /api/sync`, `GET /api/sync`) 구현
+  - [ ] OAuth 소셜 로그인 세션 및 Pro 구독 권한 기반 동기화 스토리지 쿼터 검증
+- [ ] **Step 4-7: 멀티 디바이스 동기화 및 복호화 End-to-End 통합 테스트**
+  - [ ] 기기 A(아이패드)에서 작성 후 암호화 저장 $\to$ 기기 B(노트북)에서 동일 마스터 키로 정상 복호화 확인
+  - [ ] 서버 DB 덤프 검사를 통해 원문 텍스트 유출 0건(Zero-Knowledge) 무결성 검증
 
 ### 핵심 구현 명세 (Milestone 4 Specifications)
 - **0. 선제적 투기적 추론 파이프라인 (Speculative Pre-Inference Engine)**:
@@ -216,16 +224,19 @@
 - **1. 로컬 Jev 기반 장기 맥락 자연어 검색 (`pg-jev` / `SemIf` 로컬 바인딩)**:
   - 최근 5개 FIFO 제한을 극복하고 과거 수백 개 확정 노트 중 의미적 연관 맥락 Top-K 동적 추출
   - 로컬 IPC 루프백 통신으로 네트워크 왕복 지연(190ms) 제거 및 무과금 맥락 링킹 달성
-- **2. 파이프라인 책임 분리 (Separation of Concerns)**:
+- **2. Zero-Knowledge E2EE 종단간 암호화 동기화 (Web Crypto API)**:
+  - Web Crypto API(AES-256-GCM)로 브라우저 로컬에서 노트를 암호화하고, 서버에는 암호문 블롭만 전송
+  - 소셜 로그인과 결제 권한을 유지하면서도 서버 관리자/해커의 평문 열람을 원천 차단
+- **3. 파이프라인 책임 분리 (Separation of Concerns)**:
   - *Tier 1*: 로컬 경량 한글 OCR (손글씨 획 -> 단어열 및 기호 토큰 추출)
   - *Tier 2*: **전용 맥락 추론 SLM (`Jev-SLM`)** (단어열 + 직전 맥락 + 시간 메타데이터 -> 구조화 Jev JSON 프리미티브 도출)
   - *Tier 3*: 상용 LLM 또는 로컬 생성기 (Jev 결정 프리미티브 기반 단일 완결 문장 합성)
-- **3. 합성 데이터셋 구축 (Teacher-Student Data Generation)**:
+- **4. 합성 데이터셋 구축 (Teacher-Student Data Generation)**:
   - Gemini를 교사 모델로 활용하여 불완전한 메모 단어열과 관계 기호(`->`, `~~`) 10,000건 생성 및 라벨링
-- **4. 경량 파인튜닝 (PEFT LoRA)**:
+- **5. 경량 파인튜닝 (PEFT LoRA)**:
   - `Qwen2.5-0.5B / 1.5B` 또는 `Gemma-2-2B`에 LoRA 파인튜닝 적용
   - 정확한 JSON 출력 스키마 준수율 99% 이상 검증 (DeepEval / Ragas 기반 벤치마크)
-- **5. 온디바이스 양자화 및 서빙 (INT4 ONNX Runtime)**:
+- **6. 온디바이스 양자화 및 서빙 (INT4 ONNX Runtime)**:
   - INT4 가중치 양자화로 모델 크기 400MB 이하 압축
   - 브라우저 WebAssembly 또는 백엔드 CPU에서 50ms 미만 초고속 추론 달성
 
