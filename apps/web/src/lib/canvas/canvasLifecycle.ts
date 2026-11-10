@@ -2,6 +2,8 @@ import type { Stroke, StrokePoint, AiHypothesis, ConfirmedNote, InferRequestBody
 import { calculateDecayState, type DecayState, type SpeedMode } from './decayTimer';
 import { extractCroppedStrokes, type CroppedImageResult } from './cropExtractor';
 import { recognizeOxGesture, type Point } from './gestureRecognizer';
+import { SpeculativePipeline } from './speculativePipeline';
+import { matchLocalJevContext } from '../jev/localJevMatcher';
 
 export interface CanvasLifecycleCallbacks {
   onCropExtracted?: (crop: CroppedImageResult) => void;
@@ -10,6 +12,7 @@ export interface CanvasLifecycleCallbacks {
   onHypothesisRejected?: (hypo: AiHypothesis) => void;
   onInferRequested?: (req: InferRequestBody) => Promise<InferResponseBody | null>;
   onFeedbackRefined?: (newSentence: string) => void;
+  speculativePipeline?: SpeculativePipeline;
 }
 
 /**
@@ -177,13 +180,17 @@ export class CanvasLifecycleEngine {
     '기록하신 항목을 우선순위에 따라 순차적으로 실행하시려는 건가요?',
   ];
 
+  speculativePipeline: SpeculativePipeline;
+
   constructor(callbacks: CanvasLifecycleCallbacks = {}, speedMode: boolean | SpeedMode = 'normal') {
     this.callbacks = callbacks;
     this.speedMode = typeof speedMode === 'boolean' ? (speedMode ? 'fast' : 'normal') : speedMode;
+    this.speculativePipeline = callbacks.speculativePipeline ?? new SpeculativePipeline();
   }
 
   pointerDown(point: StrokePoint): void {
-    // 추가 펜 입력 시 30초 대기 타이머 및 제스처 유예 타이머 리셋
+    // 추가 펜 입력 시 선제 추론 작업 중단 및 30초 대기/제스처 유예 타이머 리셋
+    this.speculativePipeline.handlePointerDown();
     this.lastPointerUpTime = null;
     this.lastGesturePointerUpTime = null;
 
@@ -255,6 +262,18 @@ export class CanvasLifecycleEngine {
     this.strokes.push(this.currentStroke);
     this.currentStroke = null;
     this.lastPointerUpTime = now;
+
+    // 1.5초 펜 유휴 선제적 투기 실행 트리거
+    if (this.strokes.length > 0) {
+      const cropped = extractCroppedStrokes(this.strokes);
+      const linked = matchLocalJevContext(this.lastEvaporatedContext ?? '', this.confirmedNotes, 3);
+      this.speculativePipeline.handlePointerUp({
+        croppedImageBase64: cropped?.base64,
+        previousEvaporatedContext: this.lastEvaporatedContext,
+        rejectedHypotheses: [...this.rejectedHypotheses],
+        linkedContexts: linked,
+      });
+    }
   }
 
   tick(now: number): DecayState {
@@ -383,7 +402,19 @@ export class CanvasLifecycleEngine {
       if (cropped && !this.activeHypothesis && !this.isInferring) {
         this.callbacks.onCropExtracted?.(cropped);
 
-        if (this.callbacks.onInferRequested) {
+        // 1. 선제적 투기 실행 캐시 확인 (0ms 즉각 대필)
+        const prefetched = this.speculativePipeline.consumePrefetchedHypothesis();
+        if (prefetched) {
+          const adjustedBbox = calculateVisibleHypothesisBbox(
+            [cropped.bbox[0], cropped.bbox[1], cropped.bbox[0] + cropped.bbox[2], cropped.bbox[1] + cropped.bbox[3]],
+            this.currentViewport,
+            520,
+            105
+          );
+          const dynamicWidth = adjustedBbox[2];
+          const formatted = formatHandwrittenSentence(prefetched.hypothesisSentence, dynamicWidth);
+          this.spawnHypothesis(adjustedBbox, performance.now(), formatted);
+        } else if (this.callbacks.onInferRequested) {
           this.isInferring = true;
           const req: InferRequestBody = {
             croppedImageBase64: cropped.base64,

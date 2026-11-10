@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { ConfirmedNote, EvolvingContext, RoutineSlot, BillingStatus, UserProfile } from '@itnote/shared';
+  import type { ConfirmedNote, EvolvingContext, RoutineSlot, BillingStatus, UserProfile, EngineConfig, EngineTier, NetworkStatus } from '@itnote/shared';
   import RoutineMatrix from '../auth/RoutineMatrix.svelte';
   import PaymentModal from '../billing/PaymentModal.svelte';
+  import { loadEngineConfig, saveEngineConfig, getTierMetadata } from '../engine/engineManager';
+  import { getNetworkStatus, onNetworkChange } from '../engine/networkDetector';
 
   interface Props {
     confirmedNotes: ConfirmedNote[];
@@ -12,7 +14,7 @@
 
   let { confirmedNotes, onBackToCanvas, onLogout }: Props = $props();
 
-  let activeTab = $state<'notes' | 'context' | 'routine' | 'profile' | 'billing'>('notes');
+  let activeTab = $state<'notes' | 'context' | 'routine' | 'profile' | 'billing' | 'engine'>('notes');
   let evolvingContext = $state<EvolvingContext>({
     ongoingTopics: [],
     domainVocabulary: [],
@@ -41,9 +43,26 @@
   let isRefunding = $state(false);
   let statusMessage = $state<string | null>(null);
 
-  onMount(async () => {
-    await Promise.all([loadContext(), loadRoutine(), loadProfile(), loadBilling()]);
+  // 3-Tier AI 엔진 및 네트워크 상태
+  let engineConfig = $state<EngineConfig>(loadEngineConfig());
+  let networkStatus = $state<NetworkStatus>(getNetworkStatus());
+
+  onMount(() => {
+    Promise.all([loadContext(), loadRoutine(), loadProfile(), loadBilling()]);
+    const unsubscribeNetwork = onNetworkChange((status) => {
+      networkStatus = status;
+    });
+
+    return () => {
+      unsubscribeNetwork();
+    };
   });
+
+  function handleTierSelect(tier: EngineTier) {
+    engineConfig = saveEngineConfig({ tier });
+    statusMessage = `AI 엔진이 '${getTierMetadata(tier).title}'(으)로 변경되었습니다.`;
+    setTimeout(() => (statusMessage = null), 3000);
+  }
 
   async function loadContext() {
     try {
@@ -295,6 +314,9 @@
         <button class="tab-btn" class:active={activeTab === 'billing'} onclick={() => (activeTab = 'billing')}>
           구독 {billingStatus.plan === 'pro' ? '★ Pro' : 'Free'}
         </button>
+        <button class="tab-btn" class:active={activeTab === 'engine'} onclick={() => (activeTab = 'engine')}>
+          AI 엔진 ({engineConfig.tier === 'cloud' ? '클라우드' : '로컬'})
+        </button>
       </nav>
 
       <button class="btn btn-canvas" onclick={onBackToCanvas}>
@@ -530,6 +552,91 @@
               </p>
             </div>
           {/if}
+        </div>
+      </section>
+    {/if}
+
+    {#if activeTab === 'engine'}
+      <section class="section">
+        <h2>AI 추론 엔진 & 프라이버시 설정</h2>
+        <p class="section-desc">
+          스타일러스 필기 인식 및 5-Way 가설 문장 생성을 처리할 AI 엔진을 선택합니다.
+        </p>
+
+        <!-- 네트워크 감지 경고 배너 -->
+        {#if networkStatus.isCellular || networkStatus.saveData}
+          <div class="network-warning-banner">
+            <div class="warning-title">주의: 모바일 데이터(LTE/5G) 연결 감지</div>
+            <p>
+              현재 셀룰러 데이터 환경입니다. 로컬 모델 선택 시 모델 가중치(수백 MB) 다운로드로 인해 데이터 요금이 발생할 수 있습니다.
+              Wi-Fi 환경에서 다운로드하시거나 클라우드 모드를 권장합니다.
+            </p>
+          </div>
+        {/if}
+
+        <!-- Zero-Outbound 기밀성 안내 -->
+        <div class="privacy-banner">
+          <div class="privacy-title">Zero-Outbound 로컬 기밀성 보장</div>
+          <p>
+            로컬 모델(High / Lite) 선택 시 사용자의 모든 메모와 필기 데이터는 외부 빅테크 서버로 단 1바이트도 전송되지 않고
+            사용자 브라우저 WebGPU/Wasm 내부에서만 안전하게 연산 및 파기됩니다.
+          </p>
+        </div>
+
+        <div class="engine-cards">
+          <!-- 1. High-Tier Local -->
+          <div
+            class="engine-card"
+            class:selected={engineConfig.tier === 'high-local'}
+            onclick={() => handleTierSelect('high-local')}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => e.key === 'Enter' && handleTierSelect('high-local')}
+          >
+            <div class="card-header">
+              <span class="tier-badge badge-local">100% 로컬</span>
+              <span class="tier-size">약 900 MB</span>
+            </div>
+            <h3>고성능 로컬 모델 (Qwen 1.5B)</h3>
+            <p class="card-desc">가장 풍부한 문장 표현력 및 100% Zero-Outbound 기밀성</p>
+            <div class="card-recommendation">고성능 PC / 최신 노트북 환경 권장</div>
+          </div>
+
+          <!-- 2. Lite-Tier Local -->
+          <div
+            class="engine-card"
+            class:selected={engineConfig.tier === 'lite-local'}
+            onclick={() => handleTierSelect('lite-local')}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => e.key === 'Enter' && handleTierSelect('lite-local')}
+          >
+            <div class="card-header">
+              <span class="tier-badge badge-local">100% 로컬</span>
+              <span class="tier-size">약 350 MB</span>
+            </div>
+            <h3>경량 로컬 모델 (Qwen 0.5B)</h3>
+            <p class="card-desc">빠른 다운로드, 초경량 메모리 및 100% Zero-Outbound 기밀성</p>
+            <div class="card-recommendation">일반 PC / 아이패드 및 태블릿 환경 권장</div>
+          </div>
+
+          <!-- 3. Cloud-Tier -->
+          <div
+            class="engine-card"
+            class:selected={engineConfig.tier === 'cloud'}
+            onclick={() => handleTierSelect('cloud')}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => e.key === 'Enter' && handleTierSelect('cloud')}
+          >
+            <div class="card-header">
+              <span class="tier-badge badge-cloud">서버리스</span>
+              <span class="tier-size">0 MB (다운로드 없음)</span>
+            </div>
+            <h3>클라우드 서버리스 엔진 (Gemini Flash)</h3>
+            <p class="card-desc">기기 자원 소모 0, 별도 설치 없이 즉시 초고속 추론 가동</p>
+            <div class="card-recommendation">데이터 절약 및 즉각적인 사용을 원할 때 권장</div>
+          </div>
         </div>
       </section>
     {/if}
@@ -937,5 +1044,113 @@
     margin: 0;
     font-size: 13px;
     color: #5D4037;
+  }
+
+  /* 3-Tier AI 엔진 스타일 */
+  .network-warning-banner {
+    background: #FFF8E1;
+    border: 1px solid #FFE082;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+  }
+  .network-warning-banner .warning-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #B78103;
+    margin-bottom: 4px;
+  }
+  .network-warning-banner p {
+    margin: 0;
+    font-size: 12px;
+    color: #6D4C00;
+    line-height: 1.5;
+  }
+
+  .privacy-banner {
+    background: #E8F5E9;
+    border: 1px solid #C8E6C9;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 24px;
+  }
+  .privacy-banner .privacy-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #2E7D32;
+    margin-bottom: 4px;
+  }
+  .privacy-banner p {
+    margin: 0;
+    font-size: 12px;
+    color: #1B5E20;
+    line-height: 1.5;
+  }
+
+  .engine-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .engine-card {
+    border: 2px solid rgba(0, 0, 0, 0.08);
+    border-radius: 10px;
+    padding: 18px 20px;
+    background: #FFF;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .engine-card:hover {
+    border-color: #385E72;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+  .engine-card.selected {
+    border-color: #385E72;
+    background: #F8FAFB;
+    box-shadow: 0 0 0 1px #385E72;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .tier-badge {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .tier-badge.badge-local {
+    background: #E0F2F1;
+    color: #00796B;
+  }
+  .tier-badge.badge-cloud {
+    background: #EDE7F6;
+    color: #512DA8;
+  }
+  .tier-size {
+    font-size: 12px;
+    font-weight: 600;
+    color: #777;
+  }
+
+  .engine-card h3 {
+    margin: 0 0 6px 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #222;
+  }
+  .card-desc {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    color: #666;
+  }
+  .card-recommendation {
+    font-size: 11px;
+    font-weight: 600;
+    color: #385E72;
   }
 </style>
