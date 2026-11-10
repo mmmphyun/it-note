@@ -5,6 +5,7 @@ import { inferRoute } from './routes/infer';
 import { authRoute } from './routes/auth';
 import { notesRoute } from './routes/notes';
 import { billingRoute } from './routes/billing';
+import { syncRoute } from './routes/sync';
 import { createSlidingWindowRateLimiter } from './middleware/rateLimiter';
 
 // Node.js 기본 내장 환경변수 로더 (로컬 환경 지원)
@@ -82,6 +83,7 @@ app.route('/api/auth', authRoute);
 app.route('/api/notes', notesRoute);
 app.route('/api/billing', billingRoute);
 app.route('/api/infer', inferRoute);
+app.route('/api/sync', syncRoute);
 
 // 5. 단일 컨테이너(Docker) 정적 SPA 서빙 지원
 if (!process.env.K_SERVICE && !process.env.FUNCTION_TARGET) {
