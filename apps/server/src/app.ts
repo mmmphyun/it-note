@@ -67,7 +67,6 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // 3. 헬스 체크
-app.get('/health', (c) => c.json({ status: 'ok', timestamp: Date.now() }));
 app.get('/api/health', (c) => {
   return c.json({
     status: 'ok',

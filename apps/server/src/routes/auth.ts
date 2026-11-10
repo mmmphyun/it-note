@@ -53,9 +53,7 @@ userStore.set(DEFAULT_DEMO_USER_ID, {
  * 암호학적으로 안전한 무작위 세션 ID 생성
  */
 function generateSessionId(): string {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return crypto.randomUUID();
 }
 
 /**
@@ -111,6 +109,15 @@ export function getSession(sessionId: string | null): AuthSession | null {
   });
 
   return recoveredSession;
+}
+
+/**
+ * 컨텍스트에서 인증된 사용자 ID 추출 (미인증 시 'anonymous-session')
+ */
+export function getUserIdFromContext(c: any): string {
+  const sessionId = extractSessionId(c);
+  const session = getSession(sessionId);
+  return session ? session.user.id : 'anonymous-session';
 }
 
 /**

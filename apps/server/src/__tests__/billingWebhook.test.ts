@@ -39,6 +39,32 @@ describe('Billing & Webhook Idempotency Integration', () => {
     expect(errData.received).toBe(100);
   });
 
+  it('POST /api/billing/confirm — 프로덕션 환경에서 비인가 mock 결제 시도 시 403으로 차단한다', async () => {
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const prepRes = await app.request('/api/billing/prepare', { method: 'POST' });
+      const { orderId, amount } = await prepRes.json();
+
+      // 일반 비인가 사용자(anonymous-session)가 mock 결제 승인 시도
+      const res = await app.request('/api/billing/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentKey: 'mock_unauthorized_key',
+          orderId,
+          amount,
+        }),
+      });
+
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.code).toBe('MOCK_PAYMENT_FORBIDDEN');
+    } finally {
+      process.env.NODE_ENV = prevEnv;
+    }
+  });
+
   it('POST /api/billing/confirm — 정상 금액 승인 시 Pro 멤버십이 활성화된다', async () => {
     const loginRes = await app.request('/api/auth/demo', { method: 'POST' });
     const { session } = await loginRes.json();

@@ -10,8 +10,27 @@ export function createSlidingWindowRateLimiter(options: RateLimiterOptions = {})
   const windowMs = options.windowMs ?? 24 * 60 * 60 * 1000;
   const maxRequests = options.maxRequests ?? 100;
   const ipLogs = new Map<string, number[]>();
+  const MAX_LOGGED_IPS = 1000;
+
+  function pruneExpiredIps(now: number) {
+    const windowStart = now - windowMs;
+    for (const [ipKey, ts] of ipLogs) {
+      if (ts.length === 0 || ts[ts.length - 1] <= windowStart) {
+        ipLogs.delete(ipKey);
+      }
+    }
+    if (ipLogs.size > MAX_LOGGED_IPS) {
+      const excess = ipLogs.size - MAX_LOGGED_IPS;
+      const keys = Array.from(ipLogs.keys()).slice(0, excess);
+      for (const k of keys) ipLogs.delete(k);
+    }
+  }
 
   return async (c, next) => {
+    if (ipLogs.size > MAX_LOGGED_IPS) {
+      pruneExpiredIps(Date.now());
+    }
+
     const forwardedFor = c.req.header('x-forwarded-for');
     const realIp = c.req.header('x-real-ip');
     const ip = (forwardedFor ? forwardedFor.split(',')[0].trim() : null) || realIp || '127.0.0.1';

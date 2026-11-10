@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { BillingStatus, PaymentConfirmRequest } from '@itnote/shared';
-import { extractSessionId, getSession } from './auth';
+import { getUserIdFromContext } from './auth';
 
 export const billingRoute = new Hono();
 
@@ -27,11 +27,30 @@ interface ProcessedWebhookEvent {
 const webhookIdempotencyCache = new Map<string, ProcessedWebhookEvent>();
 
 const PRO_PLAN_PRICE = 9900; // It!note Pro 월간 정가 9,900원
+const MAX_PREPARED_ORDERS = 1000;
+const ORDER_TTL_MS = 30 * 60 * 1000; // 30분 미체결 주문 만료
+const MAX_WEBHOOK_CACHE = 2000;
 
-function getUserId(c: any): string {
-  const sessionId = extractSessionId(c);
-  const session = getSession(sessionId);
-  return session ? session.user.id : 'anonymous-session';
+function cleanupPreparedOrders() {
+  const now = Date.now();
+  for (const [orderId, order] of preparedOrders) {
+    if (now - order.createdAt > ORDER_TTL_MS) {
+      preparedOrders.delete(orderId);
+    }
+  }
+  if (preparedOrders.size > MAX_PREPARED_ORDERS) {
+    const excess = preparedOrders.size - MAX_PREPARED_ORDERS;
+    const keys = Array.from(preparedOrders.keys()).slice(0, excess);
+    for (const key of keys) preparedOrders.delete(key);
+  }
+}
+
+function cleanupWebhookCache() {
+  if (webhookIdempotencyCache.size > MAX_WEBHOOK_CACHE) {
+    const excess = webhookIdempotencyCache.size - MAX_WEBHOOK_CACHE;
+    const keys = Array.from(webhookIdempotencyCache.keys()).slice(0, excess);
+    for (const key of keys) webhookIdempotencyCache.delete(key);
+  }
 }
 
 /**
@@ -39,7 +58,8 @@ function getUserId(c: any): string {
  * 클라이언트 결제창 띄우기 전 금액 및 주문번호 사전 등록 (위변조 방어 기준)
  */
 billingRoute.post('/prepare', async (c) => {
-  const userId = getUserId(c);
+  cleanupPreparedOrders();
+  const userId = getUserIdFromContext(c);
   const body = await c.req.json().catch(() => ({}));
   const orderId = body.orderId || `order_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const amount = PRO_PLAN_PRICE;
@@ -65,7 +85,7 @@ billingRoute.post('/prepare', async (c) => {
  * 클라이언트 결제창 완료 후 전달받은 paymentKey, orderId, amount 위변조 검증
  */
 billingRoute.post('/confirm', async (c) => {
-  const userId = getUserId(c);
+  const userId = getUserIdFromContext(c);
   const body = (await c.req.json().catch(() => null)) as PaymentConfirmRequest | null;
 
   if (!body || !body.orderId || !body.amount || !body.paymentKey) {
@@ -91,11 +111,27 @@ billingRoute.post('/confirm', async (c) => {
     );
   }
 
-  // 3) 실제 토스페이먼츠 시크릿 키가 환경변수에 있을 경우 외부 PG 승인 호출
+  // 3) mock_ 결제 보안 하드가드 (프로덕션 환경 비인가 mock 결제 원천 차단)
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isMockAllowed = !isProduction || process.env.ALLOW_MOCK_PAYMENT === 'true' || userId.startsWith('demo-');
+
+  if (body.paymentKey.startsWith('mock_')) {
+    if (!isMockAllowed) {
+      return c.json(
+        {
+          error: 'Mock payments are forbidden in production mode.',
+          code: 'MOCK_PAYMENT_FORBIDDEN',
+        },
+        403
+      );
+    }
+  }
+
+  // 4) 실제 토스페이먼츠 시크릿 키가 환경변수에 있을 경우 외부 PG 승인 호출
   const tossSecretKey = process.env.TOSS_SECRET_KEY;
   if (tossSecretKey && !body.paymentKey.startsWith('mock_')) {
     try {
-      const basicAuth = Buffer.from(`${tossSecretKey}:`).toString('base64');
+      const basicAuth = btoa(`${tossSecretKey}:`);
       const response = await fetch('https://api.tosspayments.com/v1/payments/confirm', {
         method: 'POST',
         headers: {
@@ -118,7 +154,7 @@ billingRoute.post('/confirm', async (c) => {
     }
   }
 
-  // 4) 결제 성공 처리 및 Pro 상태 갱신
+  // 5) 결제 성공 처리 및 Pro 상태 갱신
   const status: BillingStatus = {
     plan: 'pro',
     isActive: true,
@@ -147,7 +183,7 @@ billingRoute.post('/confirm', async (c) => {
  * 3. 결제 취소 및 전액 환불 (POST /api/billing/refund)
  */
 billingRoute.post('/refund', async (c) => {
-  const userId = getUserId(c);
+  const userId = getUserIdFromContext(c);
   const body = await c.req.json().catch(() => null);
 
   const currentStatus = userBillingStore.get(userId);
@@ -162,7 +198,7 @@ billingRoute.post('/refund', async (c) => {
   const tossSecretKey = process.env.TOSS_SECRET_KEY;
   if (tossSecretKey && paymentKey && !paymentKey.startsWith('mock_')) {
     try {
-      const basicAuth = Buffer.from(`${tossSecretKey}:`).toString('base64');
+      const basicAuth = btoa(`${tossSecretKey}:`);
       const response = await fetch(`https://api.tosspayments.com/v1/payments/${paymentKey}/cancel`, {
         method: 'POST',
         headers: {
@@ -206,6 +242,7 @@ billingRoute.post('/refund', async (c) => {
  * 3. PG Webhook 수신 및 멱등성(Idempotency) 방어 (POST /api/billing/webhook)
  */
 billingRoute.post('/webhook', async (c) => {
+  cleanupWebhookCache();
   const idempotencyKey =
     c.req.header('idempotency-key') ||
     c.req.header('x-idempotency-key') ||
@@ -267,7 +304,7 @@ billingRoute.post('/webhook', async (c) => {
  * 4. 현재 사용자의 결제 상태 조회 (GET /api/billing/status)
  */
 billingRoute.get('/status', (c) => {
-  const userId = getUserId(c);
+  const userId = getUserIdFromContext(c);
   const status = userBillingStore.get(userId) || {
     plan: 'free',
     isActive: false,

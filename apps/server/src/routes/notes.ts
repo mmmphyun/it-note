@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { ConfirmedNote } from '@itnote/shared';
-import { extractSessionId, getSession } from './auth';
+import { getUserIdFromContext } from './auth';
 import {
   getUserContext,
   updateUserContext,
@@ -12,17 +12,11 @@ export const notesRoute = new Hono();
 // 사용자별 확정 노트 저장소 (Zero-Retention 인메모리)
 const notesStore = new Map<string, ConfirmedNote[]>();
 
-function getUserId(c: any): string {
-  const sessionId = extractSessionId(c);
-  const session = getSession(sessionId);
-  return session ? session.user.id : 'anonymous-session';
-}
-
 /**
  * 1. O 확정 노트 저장 및 진화 맥락 누적 (POST /api/notes/confirm)
  */
 notesRoute.post('/confirm', async (c) => {
-  const userId = getUserId(c);
+  const userId = getUserIdFromContext(c);
   const body = await c.req.json().catch(() => null);
 
   if (!body || !body.sentence) {
@@ -57,7 +51,7 @@ notesRoute.post('/confirm', async (c) => {
  * 2. 확정 노트 목록 조회 (GET /api/notes/confirmed)
  */
 notesRoute.get('/confirmed', (c) => {
-  const userId = getUserId(c);
+  const userId = getUserIdFromContext(c);
   const userNotes = notesStore.get(userId) || [];
   return c.json({
     notes: userNotes,
@@ -69,7 +63,7 @@ notesRoute.get('/confirmed', (c) => {
  * 3. 진화 맥락 조회 (GET /api/notes/context)
  */
 notesRoute.get('/context', (c) => {
-  const userId = getUserId(c);
+  const userId = getUserIdFromContext(c);
   const context = getUserContext(userId);
   return c.json({ context });
 });
@@ -78,7 +72,7 @@ notesRoute.get('/context', (c) => {
  * 4. 진화 맥락 수동 수정/삭제 (PUT /api/notes/context)
  */
 notesRoute.put('/context', async (c) => {
-  const userId = getUserId(c);
+  const userId = getUserIdFromContext(c);
   const body = await c.req.json().catch(() => null);
 
   if (!body) {
