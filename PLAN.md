@@ -119,7 +119,39 @@ flowchart TD
 * **논의 배경 (Context & Motivation)**:
   * 현행 파이프라인(`canvasLifecycle.ts`)은 사용자가 필기를 멈추고 **30초 대기 + 60초 증발이 완전히 끝난 90초 시점**에야 비로소 `/api/infer`를 호출합니다.
   * 이로 인해 잉크가 완전히 사라진 뒤 사용자가 1~2초간 빈 화면을 대기해야 하는 반응성 지연이 발생합니다.
-  * 또한 현재 맥락 주입 방식은 최근 확정 노트 5개만 FIFO로 잘라 보내므로, 일주일 전이나 한 달 전 작성한 연관 노트의 장기 맥락이 단절되는 한계가 존재합니다.
+  * 또한 현재 맥락 주입 방식은 최근 확정 노트 5개만 FIFO로 잘라 보내므로, 과거의 중요한 연관 노트 맥락이 유실되는 한계가 존재합니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 사용자 (스타일러스 펜)
+    participant Canvas as Canvas 상태 머신
+    participant LocalJev as 로컬 경량 Jev (pg-jev / SemIf)
+    participant Infer as 추론 엔진 (VLM / SLM)
+
+    Note over Canvas: [개선 전 파이프라인: 총 90초 후 동기 호출 (체감 지연 1~2초)]
+    User->>Canvas: 필기 입력 종료 (PointerUp)
+    Note over Canvas: 30초 대기 (유휴) + 60초 서서히 증발 (총 90초 대기)
+    Canvas->>Infer: 90초 경과 시점에 원격 /api/infer 호출
+    Note over User,Canvas: 잉크가 사라진 뒤 1~2초간 빈 화면 대기 (지연 병목)
+    Infer-->>Canvas: 완성된 1문장 응답
+    Canvas->>User: 여백에 한글 획순 대필 렌더링
+
+    Note over Canvas: [개선 후 차세대 파이프라인: 1.5초 선제 변환 + 0ms 즉각 대필]
+    User->>Canvas: 필기 입력 종료 (PointerUp)
+    Note over Canvas: 1.5초 펜 유휴(Idle) 감지
+    Canvas->>LocalJev: 30초 대기 중 과거 수백 개 확정 노트 로컬 스캔 (비용 0원, 수 ms)
+    LocalJev-->>Canvas: 현재 단어와 가장 연관된 과거 맥락 Top-3 반환
+    Canvas->>Infer: 백그라운드 선제적 가설 생성 요청 (AbortController 장착)
+    Infer-->>Canvas: 사전 생성된 가설 캐시 풀(Prefetch Cache)에 보관
+    Note over Canvas: 60초 동안 잉크 서서히 증발
+    Note over User,Canvas: 잉크 투명도 0.0 도달 즉시 캐시된 문장 대필 (지연 시간 0ms)
+    opt 대기 중 펜 재터치 발생
+        User->>Canvas: 추가 필기 입력 (PointerDown)
+        Canvas->>Infer: AbortController.abort() 즉시 호출 및 캐시 폐기
+    end
+```
+
 * **아키텍처 결정 사항 (Architecture Decisions)**:
   1. **선제적 투기적 변환 (Speculative Pre-Conversion & Pre-Inference)**:
      * 사용자가 펜을 뗀 뒤 **1.5초 동안 추가 입력이 없으면(Stroke Idle)**, 잉크가 유지되고 증발하는 30~90초 대기 시간 동안 백그라운드에서 필기 인식(OCR)과 Jev 가설 생성을 미리 수행하여 클라이언트 캐시에 보관합니다.
@@ -207,3 +239,120 @@ c:/work/it!note/
   - **효과**: 프라이버시 100% 보장(Zero-Retention), 외부 API 호출 비용 0원, 반응 지연 0ms, AI 엔지니어링 포트폴리오 확립.
 * Notion OAuth 데이터베이스 자동 푸시 및 Slack Webhook 연동
 * Pro 구독자 전용 심화 기능 확장 (장기 아카이브 시맨틱 검색 등)
+
+---
+
+## 5. 차세대 아키텍처 상세 구현 명세서 (v2 / Milestone 4 Engineering Spec)
+
+### 5.1. 클라이언트 선제적 투기 실행기 (`speculativePipeline.ts`)
+* **목적**: 잉크 소멸 후 1~2초간 발생하는 빈 화면 대기 시간을 제거하여 **0ms 체감 레이턴시**를 달성합니다.
+* **상태 머신 전이도 (State Transitions)**:
+  1. `INK_WRITING`: 사용자가 스타일러스 펜으로 화면에 글씨를 입력 중인 상태입니다.
+  2. `STROKE_IDLE_1_5S`: 펜을 뗀 시점(`pointerup`)부터 1.5초간 추가 입력이 없으면 선제 변환 트리거를 발생시킵니다.
+  3. `SPECULATIVE_PREFETCHING`: 캔버스 내 필기 영역을 백그라운드 크롭하여 추론 엔진에 전달하고, 응답을 캐시 풀에 보관합니다.
+  4. `WAITING_FADE_OUT`: 30초 대기 및 60초 증발이 진행되는 동안 가설은 클라이언트 메모리에 대기합니다.
+  5. `INSTANT_REVEAL`: 잉크 투명도가 0.0에 도달하는 즉시 캐시된 문장을 `tegaki` 한글 획순으로 0ms 지연으로 대필합니다.
+  6. `ABORTED_RESET`: 대기 중 사용자가 펜을 다시 대면(`pointerdown`) 즉시 `AbortController.abort()`를 호출하고 캐시를 파기합니다.
+
+```mermaid
+stateDiagram-v2
+    [*] --> INK_WRITING
+    INK_WRITING --> STROKE_IDLE_1_5S: pointerup (1.5초 무입력)
+    STROKE_IDLE_1_5S --> INK_WRITING: pointerdown (추가 필기 발생)
+    STROKE_IDLE_1_5S --> SPECULATIVE_PREFETCHING: 1.5초 타이머 만료
+    SPECULATIVE_PREFETCHING --> WAITING_FADE_OUT: 가설 캐싱 완료
+    SPECULATIVE_PREFETCHING --> ABORTED_RESET: pointerdown (추가 필기 시 요청 취소)
+    WAITING_FADE_OUT --> ABORTED_RESET: pointerdown (추가 필기 시 캐시 폐기)
+    WAITING_FADE_OUT --> INSTANT_REVEAL: 잉크 투명도 0 도달 (0ms 즉시 대필)
+    ABORTED_RESET --> INK_WRITING
+    INSTANT_REVEAL --> [*]
+```
+
+* **핵심 구현 객체 규격**:
+  - `PenIdleDetector`: 1.5초 유휴 디바운스 타이머를 관리하며 펜 재터치 시 타이머를 리셋합니다.
+  - `SpeculativePrefetchController`: 비동기 HTTP 요청 취소 토큰(`AbortController`)을 소유하고 최신 가설 1건만 캐싱합니다.
+  - `FadeCompletionTrigger`: `PaperCanvas`의 `decayTimer`가 종료되는 프레임에서 캐시 존재 여부를 검사하고 즉시 렌더러를 호출합니다.
+
+### 5.2. 로컬 경량 Jev 장기 맥락 자연어 검색 엔진 (`contextLinker.ts`)
+* **목적**: 최근 5개 FIFO의 맹점을 극복하고, 과거 수백 개 확정 노트 중 현재 메모와 시맨틱 연관성이 높은 맥락을 로컬에서 수 ms 내 추출합니다.
+* **아키텍처 구성**:
+  - 클라우드 API 대신 로컬 인스턴스(`pg-jev` 로컬 엔드포인트 또는 SQLite 가상 테이블 확장)를 30초 유휴 시간 동안 호출합니다.
+  - 외부 네트워크 왕복(190ms)이 발생하지 않아 비용 0원과 통신 지연 0ms를 달성합니다.
+* **데이터 인덱싱 및 쿼리 파이프라인**:
+  1. 사용자가 문장에 동그라미(`O`)를 쳐서 흡수시킬 때마다 로컬 DB `confirmed_notes` 테이블에 텍스트와 Jev 프리디케이트를 저장합니다.
+  2. 1.5초 펜 유휴 감지 시, 작성 중인 텍스트/키워드를 조건문으로 전달하여 로컬 인덱스를 스캔합니다.
+  3. `SemIf` 기반 의사결정 판별기를 통해 "현재 작성 중인 키워드와 인과적·주제적으로 연관된 과거 노트인가?"를 판별하여 Top-3 맥락을 도출합니다.
+  4. 도출된 Top-3 맥락을 선제 가설 생성기의 프롬프트에 동적 결합합니다.
+
+### 5.3. 3-Tier 온디바이스 파이프라인 (Vision OCR + SemIf SLM + Generation)
+* **Tier 1: 로컬 경량 손글씨 OCR (Vision Recognizer)**:
+  - 모델: `VerifiedIdiot/korean-handwriting-rec` (PP-OCRv5 ONNX ~15MB).
+  - 역할: 캔버스 래스터 픽셀에서 한글 텍스트 및 기호(`->`, `~~`)를 추출합니다.
+  - 실행 환경: 브라우저 WebAssembly 또는 백엔드 Node CPU.
+* **Tier 2: 전용 맥락 추론 SLM (`SemIf-OpenJev`)**:
+  - 모델: Qwen-1.5B 기반 INT4 양자화 모델 (약 400MB).
+  - 역할: 텍스트 토큰 간 인과 관계를 분석하여 구조화된 Jev 프리미티브(`Noul`, `Choice`)를 30ms 내 단일 포워드 패스로 결정합니다.
+* **Tier 3: 가설 문장 합성기 (Hypothesis Synthesizer)**:
+  - 역할: Jev가 확정한 의사결정 프리미티브를 바탕으로 단 1개의 완결된 한국어 가설 문장을 합성합니다.
+  - 모델: 로컬 2B SLM 또는 클라우드 Gemini Flash Fallback.
+
+### 5.4. 데이터 인터페이스 및 스키마 규격 (`packages/shared`)
+```typescript
+// 선제적 투기 추론 요청 페이로드
+export interface SpeculativeInferenceRequest {
+  strokePoints: StrokePoint[];
+  croppedImageBase64?: string;
+  idleDurationMs: number;
+  linkedContextIds: string[];
+}
+
+// 로컬 Jev 시맨틱 검색 질의 규격
+export interface ContextLinkQuery {
+  currentKeywords: string[];
+  userPersona: UserProfile;
+  candidateLimit: number; // 기본값 3
+}
+
+// 추출된 연관 과거 맥락
+export interface LinkedContextItem {
+  noteId: string;
+  confirmedSentence: string;
+  similarityScore: number;
+  relevanceReason: string;
+  createdAt: string;
+}
+
+// 클라이언트 프리페치 캐시 슬롯
+export interface PrefetchedHypothesisSlot {
+  hypothesisSentence: string;
+  jevDecision: JevDecisionResult;
+  linkedContexts: LinkedContextItem[];
+  fetchedAt: number;
+  isStale: boolean;
+}
+```
+
+### 5.5. 4단계 구현 일정 및 검증 게이트 (Phased Execution Plan)
+* **Step 5-1: 클라이언트 유휴 감지 및 AbortController 상태 머신 구현**:
+  - 1.5초 펜 유휴 디바운스 로직 및 펜 터치 인터럽트 단위 테스트 작성.
+  - 가상 타이머 기반 `speculativePipeline.test.ts` 100% 통과 검증.
+* **Step 5-2: 프리페치 캐시 풀 및 0ms 트랜지션 연동**:
+  - 잉크 소멸 프레임에서 캐시 즉시 인출 및 `tegaki` 렌더러 직결.
+  - 펜 재터치 시 진행 중인 HTTP 요청 취소(`req.signal.aborted`) 무결성 검증.
+* **Step 5-3: 로컬 Jev 기반 장기 맥락 인덱서 구축**:
+  - 로컬 확정 노트 테이블 스키마 신설 및 시맨틱 링커 모듈 작성.
+  - 최근 5개 FIFO 대비 과거 연관 맥락 탐색 정확도 평가.
+* **Step 5-4: 3-Tier 온디바이스 모델 통합 및 레이턴시 벤치마크**:
+  - ONNX Runtime 기반 PP-OCRv5 및 SemIf 로짓 판독 바인딩.
+  - 잉크 증발 만료 시점 체감 대기 시간 0ms 및 CPU 연산 100ms 이내 서빙 달성 검증.
+
+### 5.6. 리스크 분석 및 폴백 방어책 (Red Teaming)
+* **펜 연속 터치(Stuttering) 연산 폭주 방지**:
+  - 사용자가 필기 도중 펜을 짧게 뗐다 붙이는 행위를 반복할 때 매번 추론이 호출되는 문제를 방어합니다.
+  - *대책*: 최소 호출 간격(Min-Interval Throttle) 3초를 강제하고, 펜이 닿아 있는 동안에는 타이머를 전면 중단합니다.
+* **투기적 추론 실패 시의 Fallback 메커니즘**:
+  - 네트워크 단절이나 모델 에러로 선제 생성이 실패했을 경우 화면에 오류 모달을 띄우지 않습니다.
+  - *대책*: 90초 잉크 소멸 시점에 기존 동기 방식 온디맨드 추론으로 조용히 재시도(Silent Retry)합니다.
+* **로컬 DB 용량 증가 시 질의 지연 방지**:
+  - 확정 노트가 1,000건 이상 누적될 때 로컬 스캔 레이턴시가 증가할 위험을 차단합니다.
+  - *대책*: 최근 30일 이내 노트 또는 도메인 태그 기준 1차 필터링 후 상위 100건 대상 로컬 Jev 판별을 수행합니다.

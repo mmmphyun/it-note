@@ -192,7 +192,24 @@
 
 **목표**: 비전 OCR과 언어 맥락 추론을 분리하고, 텍스트 토큰 간 의미론적 관계 및 다중 턴 맥락 결합을 전담하는 0.5B~2B급 특화 SLM 및 투기적 실행(Speculative Execution) 엔진을 온디바이스(CPU/ONNX)로 구축하여 제로 레이턴시(0ms), API 비용 0원, 프라이버시 100%를 달성합니다.
 
-### 핵심 구현 명세 (Milestone 4)
+### 상세 구현 체크리스트 (Milestone 4 Executable Checklist)
+- [ ] **Step 4-1: 클라이언트 1.5초 펜 유휴 감지 및 AbortController 상태 머신 구축**
+  - [ ] `apps/web/src/lib/canvas/speculativePipeline.ts` 신설: 1.5초 유휴 디바운스 타이머 및 `pointerdown` 발생 시 즉각 중단(`AbortController.abort()`) 로직 구현
+  - [ ] `packages/shared/src/speculative.ts` 신설: `SpeculativeInferenceRequest`, `PrefetchedHypothesisSlot` 인터페이스 정의
+  - [ ] `apps/web/src/lib/canvas/__tests__/speculativePipeline.test.ts` 작성: 가상 타이머 1.5초 후 선제 요청 방출 및 재터치 시 취소 토큰 무결성 검증
+- [ ] **Step 4-2: 프리페치 캐시 풀 및 0ms 트랜지션 연동**
+  - [ ] `PaperCanvas.svelte` 라이프사이클 연동: 잉크 투명도 0.0 도달 프레임에서 대기 없이 캐시된 문장을 즉시 `tegaki` 한글 획순 대필로 연결
+  - [ ] 최소 호출 간격 3초 쓰로틀(Throttle) 및 네트워크 실패 시 90초 만료 시점 온디맨드 추론으로 조용한 폴백(Silent Fallback) 구현
+- [ ] **Step 4-3: 로컬 Jev 기반 장기 맥락 자연어 검색 엔진 구축**
+  - [ ] 로컬 SQLite / 인메모리 확정 노트 인덱스 구축 (`confirmed_notes` 테이블)
+  - [ ] 30초 펜 유휴 시간 동안 로컬 IPC 루프백으로 과거 수백 개 노트 중 시맨틱 연관 맥락 Top-3 동적 추출 알고리즘 구현
+  - [ ] 최근 5개 FIFO 대비 과거 장기 맥락 보존율 벤치마크 테스트 작성
+- [ ] **Step 4-4: 3-Tier 온디바이스 모델 통합 및 레이턴시 벤치마크**
+  - [ ] Tier 1: `korean-handwriting-rec` (PP-OCRv5 ONNX ~15MB) 획-텍스트 변환기 연동
+  - [ ] Tier 2: `SemIf-OpenJev` (Qwen-1.5B INT4) CPU 30ms 단일 포워드 패스 로짓 판독기 연동
+  - [ ] Tier 3: 로컬 가설 합성기 결합으로 완전한 Zero-Outbound 기밀성 및 0ms 체감 지연 완성
+
+### 핵심 구현 명세 (Milestone 4 Specifications)
 - **0. 선제적 투기적 추론 파이프라인 (Speculative Pre-Inference Engine)**:
   - 펜 유휴 1.5초 감지 시 30초 증발 대기 시간 동안 백그라운드 선제적 필기 변환 및 가설 생성
   - 잉크 소멸 시점 0ms 제로 레이턴시 대필 및 펜 재터치 시 `AbortController` 캐시 무효화
