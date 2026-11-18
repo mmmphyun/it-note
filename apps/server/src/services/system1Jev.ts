@@ -11,7 +11,7 @@ import type {
   JevRerankerInput,
   JevRerankerResult,
 } from '@itnote/shared';
-import type { GoogleGenAI } from '@google/genai';
+import { ThinkingLevel, type GoogleGenAI } from '@google/genai';
 import { getGeminiClient } from './geminiClient';
 import { recognizeHandwritingWithSidecar } from './ocrClient';
 
@@ -24,41 +24,92 @@ export interface System1Output {
   ocrRawText?: string;
 }
 
-function isTransientServiceUnavailable(err: unknown): boolean {
+const GEMINI_ATTEMPT_TIMEOUT_MS = 14000;
+
+function isTransientOrTimeoutError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
+  return (
+    msg.includes('503') ||
+    msg.includes('UNAVAILABLE') ||
+    msg.includes('high demand') ||
+    msg.includes('REQUEST_TIMEOUT') ||
+    msg.includes('aborted') ||
+    msg.includes('Timeout')
+  );
+}
+
+async function runSingleAttemptWithTimeout(
+  ai: GoogleGenAI,
+  params: Parameters<GoogleGenAI['models']['generateContent']>[0],
+  model: string,
+  thinkingLevel: ThinkingLevel
+) {
+  const controller = new AbortController();
+  const baseConfig = params.config ? { ...params.config } : {};
+  if (model === 'gemini-4-hydrogen') {
+    delete baseConfig.temperature;
+    delete baseConfig.topP;
+    delete baseConfig.topK;
+  }
+
+  let timerId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timerId = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`REQUEST_TIMEOUT(${model})`));
+    }, GEMINI_ATTEMPT_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([
+      ai.models.generateContent({
+        ...params,
+        model,
+        config: {
+          ...baseConfig,
+          abortSignal: controller.signal,
+          thinkingConfig: {
+            ...(baseConfig.thinkingConfig ?? {}),
+            thinkingLevel,
+          },
+        },
+      }),
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+    }
+  }
 }
 
 /**
- * 업스트림 Gemini 503 일시 과부하 시 최신 모델(gemini-4-hydrogen -> gemini-3.1-flash-lite) 순차 전환 재시도 래퍼
+ * 업스트림 Gemini 지연/503 일시 과부하 시 ThinkingLevel.MINIMAL + 14s 타임아웃 + 최신 모델 순차 장애 조치 래퍼
  */
 export async function generateContentWithTransientRetry(
   ai: GoogleGenAI,
   params: Parameters<GoogleGenAI['models']['generateContent']>[0]
 ) {
-  try {
-    return await ai.models.generateContent(params);
-  } catch (err1) {
-    if (!isTransientServiceUnavailable(err1)) {
-      throw err1;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 400));
+  const attemptPlan: Array<{ model: string; thinkingLevel: ThinkingLevel }> = [
+    { model: 'gemini-3.5-flash-lite', thinkingLevel: ThinkingLevel.MINIMAL },
+    { model: 'gemini-3.1-flash-lite', thinkingLevel: ThinkingLevel.MINIMAL },
+    { model: 'gemini-3.5-flash-lite', thinkingLevel: ThinkingLevel.MINIMAL },
+    { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW },
+  ];
+
+  let lastError: unknown;
+  for (let i = 0; i < attemptPlan.length; i++) {
+    const { model, thinkingLevel } = attemptPlan[i];
     try {
-      return await ai.models.generateContent({
-        ...params,
-        model: 'gemini-4-hydrogen',
-      });
-    } catch (err2) {
-      if (!isTransientServiceUnavailable(err2)) {
-        throw err2;
+      return await runSingleAttemptWithTimeout(ai, params, model, thinkingLevel);
+    } catch (err) {
+      lastError = err;
+      if (!isTransientOrTimeoutError(err) || i === attemptPlan.length - 1) {
+        throw err;
       }
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      return ai.models.generateContent({
-        ...params,
-        model: 'gemini-3.1-flash-lite',
-      });
     }
   }
+  throw lastError;
 }
 
 /**

@@ -82,19 +82,26 @@ Never output markdown blocks or conversational text. Return valid JSON only:
   "candidate_definition": "..."
 }
 
-CRITICAL NATURALNESS, DOMAIN & PAIR RULES (ZERO TOLERANCE FOR ROBOTIC TONE):
-1. NEVER use robotic database/record-keeping phrasing such as "데이터 단위", "기록 항목", "수정하는 것이 맞나요?", "입력하신 내용", "소비 비용과 선호 메뉴를 기록하는".
-2. Infer REAL-WORLD HUMAN INTENT (buying/ordering, expense logging, running errands for others, comparing options, architectural planning).
-3. PAIRED STRIKETHROUGH RULE (IMPORTANT): When BOTH an item/menu AND a price/numeric value are crossed out and replaced (e.g. "~~초코라떼~~ 얼그레이 밀크티, ~~4000원~~ 4500원"), interpret the new number as the price/spec of the NEW replacement item (or cost difference between old and new items) — NEVER misinterpret it as a price hike on the same item!
-4. DOMAIN PRECEDENCE OVER PERSONA:
+CRITICAL NATURALNESS, YES/NO CONFIRMABILITY, DOMAIN & PAIR RULES (ZERO TOLERANCE):
+1. STRICT YES/NO (O/X) CONFIRMABILITY RULE (MOST IMPORTANT):
+   - The user can ONLY respond by drawing a circle 'O' (Yes/Confirm) or a cross 'X' (No/Reject) — NEVER with text!
+   - Every sentence MUST be a concrete, closed hypothesis that can be completely answered with a single "예(O)" or "아니오(X)" and directly saves a finished decision when circled ('O').
+   - STRICTLY FORBIDDEN PATTERNS:
+     * NEVER ask whether a reason exists or ask for an open explanation: NEVER write "~이유가 따로 있으신가요?", "~이유가 있나요?", "~까닭이 있나요?", "어떤 ~인가요?", "무엇인가요?", "어떻게 ~하시려는 건가요?", "왜 ~하셨나요?".
+     * BAD: "국밥 대신 수육전골을 고르신 이유가 따로 있으신가요?" or "초코라떼에서 얼그레이 밀크티로 변경한 이유가 있나요?"
+     * GOOD: "국밥 대신 여럿이 함께 먹기 좋은 수육전골로 메뉴를 바꾸신 건가요?" or "초코라떼 대신 덜 달고 깔끔한 얼그레이 밀크티로 바꾸신 건가요?" (Propose ONE concrete reason/situation directly so the user can answer Yes/No!)
+2. NEVER use robotic database/record-keeping phrasing such as "데이터 단위", "기록 항목", "수정하는 것이 맞나요?", "입력하신 내용", "소비 비용과 선호 메뉴를 기록하는".
+3. Infer REAL-WORLD HUMAN INTENT (buying/ordering, expense logging, running errands for others, comparing options, architectural planning).
+4. PAIRED STRIKETHROUGH RULE (IMPORTANT): When BOTH an item/menu AND a price/numeric value are crossed out and replaced (e.g. "~~초코라떼~~ 얼그레이 밀크티, ~~4000원~~ 4500원"), interpret the new number as the price/spec of the NEW replacement item (or cost difference between old and new items) — NEVER misinterpret it as a price hike on the same item!
+5. DOMAIN PRECEDENCE OVER PERSONA:
    - The user's registered role is "${personaRole}".
    - However, if Inferred Domain is ROUTINE_TASK or GENERAL_IDEA (e.g. cafe drinks, food, errands, prices), NEVER force coding, architecture, DevSecOps, or data-modeling terms into ANY of the 5 candidates.
-5. Keep each sentence concise and natural (around 15-38 Korean characters where possible).
+6. Keep each sentence concise and natural (around 15-38 Korean characters where possible).
 
 5 Domain-Neutral Perspectives (Adapt strictly to the note's real domain and vary concrete situations when rejections exist):
 1. candidate_project (핵심 의도·행동): The primary real-world purpose/action behind writing this note (e.g., ordering/buying, logging an expense/settlement, noting someone else's request, executing a project task).
 2. candidate_routine (일상·상황 맥락): Concrete situational/timing/social context around the memo (e.g., break/meal context, gathering orders with companions, pre-visit price check, daily work routine).
-3. candidate_pivot (선택·변경 이유): Why "${struckOutKw || 'prior choice'}" was dropped/crossed out in favor of "${activeKw}" (e.g., taste/caffeine/allergy constraint, +cost tradeoff, out-of-stock switch, technical bottleneck).
+3. candidate_pivot (선택·전환 가설): NEVER ask "why" or "이유가 있나요?"! Instead, directly confirm the switch from "${struckOutKw || 'prior choice'}" to "${activeKw}" OR propose ONE specific concrete hypothesis/tradeoff for the switch (e.g., taste/caffeine/sharing/out-of-stock/+cost tradeoff) answerable with Yes/No.
 4. candidate_longterm (취향·연속 맥락): Connection to confirmed previous context (${prevContext || 'none'}), recurring personal preference/habit, or recent confirmed notes (${recentNotes.slice(-2).join(' / ') || 'none'}).
 5. candidate_definition (세부 조건·내역): Exact verification of final item, store, specification, or old-vs-new cost difference matching the active choice (apply Paired Strikethrough Rule!).
 
@@ -169,10 +176,11 @@ Generate EXACTLY ONE complete, polite Korean inference question (single sentence
 Do NOT list bullet points or alternatives.
 Do NOT output line breaks or markdown blocks.
 
-CRITICAL TONE & INTENT RULES (ZERO TOLERANCE FOR DATABASE EDITING TONE):
-1. NEVER ask bureaucratic database/record editing questions like "수정하는 것이 맞나요?", "변경하시겠습니까?", "입력하신 내용이 맞나요?".
-2. Infer the REAL-WORLD HUMAN ACTION (what the user actually decided, ordered, chose, or is planning in reality).
-3. The core action is determined by the intersection of [Domain: ${domain}] x [ActionTask: ${actionTask}]:
+CRITICAL TONE, YES/NO CONFIRMABILITY & INTENT RULES (ZERO TOLERANCE):
+1. STRICT YES/NO (O/X) CONFIRMABILITY RULE: The user replies ONLY with 'O' (Yes) or 'X' (No). NEVER ask "~이유가 따로 있으신가요?", "~이유가 있나요?", "어떤/왜/무엇" questions. Propose ONE concrete closed hypothesis answerable purely by Yes or No.
+2. NEVER ask bureaucratic database/record editing questions like "수정하는 것이 맞나요?", "변경하시겠습니까?", "입력하신 내용이 맞나요?".
+3. Infer the REAL-WORLD HUMAN ACTION (what the user actually decided, ordered, chose, or is planning in reality).
+4. The core action is determined by the intersection of [Domain: ${domain}] x [ActionTask: ${actionTask}]:
    - SELECTION_PIVOT in ROUTINE_TASK: "A 대신 B로 주문하시려는 건가요?" or "A 대신 B로 결정하신 건가요?"
    - SELECTION_PIVOT in SIDE_PROJECT_SPARK: "A 대신 B를 도입해 개발하시려는 계획인가요?"
    - ALTERNATIVE_COMPARE in ROUTINE_TASK: "점심/메뉴로 A와 B 중 고민하고 계신가요?"

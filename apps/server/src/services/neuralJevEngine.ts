@@ -69,7 +69,7 @@ export function buildDecisionQuestions(
     questions[key] = {
       type: 'noul',
       instructions:
-        `Evaluate against user memo context (${contextStr}). Score TRUE (0.75-0.95) if the Korean question sounds like a natural human companion reflecting the note's real domain and introduces a genuinely fresh situational hypothesis rather than repeating or merely paraphrasing any rejected sentence in 기각이력. Score FALSE (0.05-0.25) if it uses robotic DB phrasing ("데이터 단위", "기록 항목"), forces unrelated tech jargon onto an everyday note, misinterprets a menu change price as a price hike, or only swaps word endings of a rejected sentence. Candidate: "${candidates[key]}"`,
+        `Evaluate against user memo context (${contextStr}). Score TRUE (0.75-0.95) ONLY if the Korean question is a closed Yes/No hypothesis immediately answerable with circle O (Yes) or cross X (No), sounds natural in the real domain, and avoids repeating rejected sentences. Score FALSE (0.01-0.15) if it asks about unstated reasons or uses open prompts like "~이유가 따로 있으신가요?", "~이유가 있나요?", "어떤/무엇/왜", uses robotic DB phrasing ("데이터 단위", "기록 항목"), misinterprets a menu change price as a price hike, or only swaps word endings of a rejected sentence. Candidate: "${candidates[key]}"`,
     };
   }
   return questions;
@@ -153,9 +153,9 @@ async function callGeminiDecisionsApi(
 
     const scorePrompt = `Evaluate each of the 5 Korean hypothesis candidates against the user's memo context and return an independent probability score between 0.00 and 1.00 for each key in JSON format only.
 Scoring Rubric:
-- 0.75-0.95: Sounds like a warm, natural human question accurately reflecting the raw note, domain, paired strikethrough meaning, AND proposing a genuinely fresh real-world situational premise compared to any rejected history.
-- 0.40-0.65: Acceptable alternative angle within the right domain that is reasonably distinct from rejected hypotheses.
-- 0.05-0.30: Robotic/database phrasing ("데이터 단위", "기록하는", "수정"), forces unrelated tech/job jargon onto an everyday note, misreads a menu change as a price hike, OR merely paraphrases/swaps word endings of a sentence in 기각이력.
+- 0.75-0.95: Closed Yes/No (O/X) hypothesis directly answerable with Yes or No without needing user explanation, warm and natural in the real domain, AND fresh compared to rejected history.
+- 0.40-0.65: Acceptable closed Yes/No alternative hypothesis reasonably distinct from rejected history.
+- 0.01-0.25: Unanswerable with pure Yes/No because it asks for reasons ("~이유가 따로 있으신가요?", "~이유가 있나요?", "왜/어떤/무엇"), uses robotic DB phrasing ("데이터 단위", "기록하는", "수정"), misreads a menu change as a price hike, OR merely paraphrases rejected history.
 
 Context: ${req.input}
 Questions:
@@ -301,7 +301,7 @@ export async function runNeuralJevReranker(input: JevRerankerInput): Promise<Jev
   const reasonMap: Record<CandidateKey, string> = {
     candidate_project: 'gemini-decision-1 판별: 핵심 의도 및 행동 목적 정합도 최상위 판정',
     candidate_routine: 'gemini-decision-1 판별: 일상·상황 맥락 적합도 최상위 판정',
-    candidate_pivot: 'gemini-decision-1 판별: 기각 이력 및 선택·변경 이유 반영 최적 대안 판정',
+    candidate_pivot: 'gemini-decision-1 판별: 기각 이력 및 선택·전환 가설 최적 대안 판정',
     candidate_longterm: 'gemini-decision-1 판별: 취향·연속 맥락 및 과거 노트 연관성 최상위 판정',
     candidate_definition: 'gemini-decision-1 판별: 세부 조건·내역 정확도 최상위 판정',
   };
