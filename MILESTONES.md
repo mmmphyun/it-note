@@ -188,9 +188,9 @@
 
 ---
 
-## 마일스톤 4 (v2 고도화 / AI 엔지니어링): 한국어 특화 인코더 배치 Jev 엔진 및 Zero-Knowledge E2EE 동기화
+## 마일스톤 4 (v2 고도화 / AI 엔지니어링 개정안): `gemini-decision-1` 판별 엔진 · `ko-hand-ocr` 사이드카 · E2EE 실연동
 
-**목표**: 비전 OCR 및 5-Way 직교 가설 생성(Generator)과 한국어 특화 인코더 판별(Discriminator)을 엄격히 분리하고, `klue/roberta-large` INT8 ONNX 모델과 `onnxruntime-node`를 Hono 서버에 상주 프리로드하여 생성 토큰 0개의 초고속 배치 로짓 판별(50-80ms CPU)을 달성합니다. 아울러 Web Crypto API 기반 Zero-Knowledge E2EE 동기화 계층을 구축하여 클라우드 무료 티어 사수 및 완벽한 기밀성을 확보합니다.
+**목표**: 기존 로컬 ONNX(`klue/roberta-large`) 계획을 폐기하고, Python 네이티브 `jysvai/ko-hand-ocr` HTTP 사이드카(`services/ocr/`)와 System 2 5-Way 후보 생성, 그리고 Google **`gemini-decision-1`** (시각 기호 판별 + 후보별 독립 점수/확률 산출) 파이프라인을 구축합니다. 아울러 개발자 테스트 페이지(`PipelineDevView`, `HandwritingOcrDevView`)에서 5개 후보 문장과 확률을 시각화해 `X` 기각 재사용 임계치(`reuseThreshold`)를 실측 튜닝하며, IndexedDB 영속화 및 Web Crypto E2EE 동기화 UI를 완결합니다.
 
 ### 상세 구현 체크리스트 (Milestone 4 Executable Checklist)
 - [x] **Step 4-1: 클라이언트 1.5초 펜 유휴 감지 및 AbortController 상태 머신 구축**
@@ -200,45 +200,38 @@
 - [x] **Step 4-2: 프리페치 캐시 풀 및 0ms 트랜지션 연동**
   - [x] `PaperCanvas.svelte` 라이프사이클 연동: 잉크 투명도 0.0 도달 프레임에서 대기 없이 캐시된 문장을 즉시 `tegaki` 한글 획순 대필로 연결
   - [x] 최소 호출 간격 3초 쓰로틀(Throttle) 및 네트워크 실패 시 90초 만료 시점 온디맨드 추론으로 조용한 폴백(Silent Fallback) 구현
-- [x] **Step 4-3: 로컬 Jev 기반 장기 맥락 자연어 검색 엔진 구축**
-  - [x] `apps/web/src/lib/jev/localJevMatcher.ts`: `pg-jev` 알고리즘을 단일 TS 모듈로 포팅하여 IndexedDB 확정 노트 인메모리 스캔 및 Top-3 도출
+  - [ ] `PrefetchedHypothesisSlot` 소비 시 `extractedKeywords`, `candidatePool`, `rerankerResult` 보존 연동
+- [x] **Step 4-3: 로컬 Jev 기반 장기 맥락 자연어 검색 엔진 및 IndexedDB 영속화**
+  - [x] `apps/web/src/lib/jev/localJevMatcher.ts`: `pg-jev` 알고리즘을 단일 TS 모듈로 포팅하여 확정 노트 인메모리 스캔 및 Top-3 도출
   - [x] `apps/web/src/lib/jev/__tests__/localJevMatcher.test.ts`: 자카드 유사도 및 최신성 감쇄 가중치 단위 테스트 검증 (100% 통과)
-- [x] **Step 4-4: 한국어 특화 인코더 배치 Jev 엔진 및 onnxruntime-node 연동 (`neuralJevEngine.ts`)**
-  - [x] `apps/server/src/services/neuralJevEngine.ts`: `onnxruntime-node` C++ 바인딩을 Hono에 프리로드(`preload=True`)하고, 5-Way 가설을 `batch_size=5` 단일 텐서 1회 순전파(50-80ms CPU)로 로짓 추출 및 최적 문장 판별
-  - [x] `apps/server/src/__tests__/neuralJevEngine.test.ts`: 단위 테스트 작성 및 80ms 이내 순전파 검증 (100% 통과)
-- [x] **Step 4-5: Web Crypto API 기반 로컬 E2EE 암호화 엔진 구축 (`cryptoSync.ts`)**
-  - [x] PBKDF2-HMAC-SHA256 (100,000회 반복) 마스터 키 유도 함수 구현
-  - [x] 확정 노트 본문 AES-256-GCM 클라이언트 대칭키 암호화 (`ciphertext`, `iv`, `salt`) 및 복호화 단위 테스트 작성 (100% 통과)
-- [x] **Step 4-6: Hono 백엔드 Zero-Knowledge 암호문 블롭 동기화 라우트 (`/api/sync`)**
-  - [x] 평문 파싱 없이 암호문 블롭만 메모리/DB에 보관하는 동기화 엔드포인트(`POST /api/sync/push`, `GET /api/sync/pull`) 구현
-  - [x] OAuth 소셜 로그인 세션 기반 사용자별 암호문 블롭 격리 검증 (100% 통과)
-- [x] **Step 4-7: 멀티 디바이스 동기화 및 복호화 End-to-End 통합 테스트**
-  - [x] 기기 A(아이패드)에서 작성 후 암호화 저장 -> 기기 B(노트북)에서 동일 마스터 키로 정상 복호화 확인
-  - [x] 서버 DB 덤프 검사를 통해 원문 텍스트 유출 0건(Zero-Knowledge) 무결성 검증 (`syncRoute.test.ts` 100% 통과)
+  - [ ] `apps/web/src/lib/storage/noteDb.ts`: 브라우저 IndexedDB(`itnote_local_db`) 영속 저장·로드 연결
+- [ ] **Step 4-4: `ko-hand-ocr` Python 사이드카 & `gemini-decision-1` 판별 엔진 전환 (ONNX 대체)**
+  - [ ] `services/ocr/main.py` & `apps/server/src/services/ocrClient.ts`: `jysvai/ko-hand-ocr` Python HTTP 사이드카 및 미실행 시 Gemini 멀티모달 폴백 구현
+  - [ ] `apps/server/src/services/geminiDecisionClient.ts`: Google `gemini-decision-1` 기반 시각 기호 판별 + 5개 후보별 독립 점수/확률(`candidateScores`, `0.00-1.00`) 산출 구현 (기존 `onnxruntime-node` 제거)
+  - [ ] `marginBox` 기하학 고정 계산 및 `X` 기각 시 `reuseThreshold` 동적 차순위 재사용 vs 5개 재생성 분기 구현 (`canvasLifecycle.ts`)
+- [ ] **Step 4-5: 개발자 테스트 페이지 개편 (5개 후보·확률 시각화 및 임계치 튜닝)**
+  - [ ] `PipelineDevView.svelte` (`/?view=dev`): 5개 후보 문장 전체와 각 후보 확률/점수 바 그래프 표출, `reuseThreshold` 실시간 슬라이더 및 `X` 기각 재사용 시뮬레이션 연동
+  - [ ] `HandwritingOcrDevView.svelte` (`/?view=handwriting`): OCR 소스 배지(`ko-hand-ocr` vs 폴백) 및 5개 후보 확률 테이블 표출
+- [x] **Step 4-6: Web Crypto API E2EE 엔진 & `/api/sync` 무지식 백엔드 라우트 구축**
+  - [x] PBKDF2-HMAC-SHA256 (100,000회 반복) 마스터 키 유도 및 AES-256-GCM 암복호화 단위 테스트 통과 (`cryptoSync.ts`)
+  - [x] 평문 파싱 없이 암호문 블롭만 격리 보관하는 `/api/sync/push`, `/api/sync/pull` 및 통합 테스트 통과 (`syncRoute.test.ts`)
+  - [ ] `App.svelte` 및 `DeskView.svelte`: E2EE 마스터 패스프레이즈 UI 추가 및 확정 노트 푸시/풀 실연동
 
-### 핵심 구현 명세 (Milestone 4 Specifications)
+### 핵심 구현 명세 (Milestone 4 Revised Specifications)
 - **0. 선제적 투기적 추론 파이프라인 (Speculative Pre-Inference Engine)**:
   - 펜 유휴 1.5초 감지 시 30초 증발 대기 시간 동안 백그라운드 선제적 필기 변환 및 가설 생성
   - 잉크 소멸 시점 0ms 제로 레이턴시 대필 및 펜 재터치 시 `AbortController` 캐시 무효화
-- **1. 로컬 Jev 기반 장기 맥락 자연어 검색 (`localJevMatcher`)**:
-  - 최근 5개 FIFO 제한을 극복하고 과거 수백 개 확정 노트 중 의미적 연관 맥락 Top-K 동적 추출
-  - 로컬 메모리 스캔으로 네트워크 왕복 지연(190ms) 제거 및 무과금 맥락 링킹 달성
+- **1. 로컬 Jev 기반 장기 맥락 자연어 검색 (`localJevMatcher`) & IndexedDB 영속화**:
+  - 최근 5개 FIFO 제한을 극복하고 IndexedDB 영속 저장소에서 과거 연관 맥락 Top-3 동적 추출
 - **2. Zero-Knowledge E2EE 종단간 암호화 동기화 (Web Crypto API)**:
-  - Web Crypto API(AES-256-GCM + PBKDF2)로 브라우저 로컬에서 노트를 암호화하고, 서버에는 암호문 블롭만 전송
-  - 소셜 로그인과 결제 권한을 유지하면서도 서버 관리자/해커의 평문 열람을 원천 차단
-- **3. 파이프라인 책임 분리 (Generator vs Discriminator)**:
-  - *Tier 1*: 로컬 경량 한글 OCR (손글씨 획 -> 단어열 및 기호 토큰 추출)
-  - *Tier 2*: **한국어 특화 인코더 Jev 판별 엔진 (`KLUE-RoBERTa-large` INT8 ~330MB)** (5-Way 가설을 `batch_size=5` 1회 순전파로 로짓 산출 및 최적 문장 판별)
-  - *Tier 3*: 5-Way 직교 가설 생성기 (다양한 관점의 5개 후보 문장 동시 합성)
-- **4. 한국어 특화 인코더 선정**:
-  - `klue/roberta-large` INT8 ONNX (~330MB)
-  - 영어 중심 모델의 한국어 분절 왜곡을 방지하고 정확한 의미 인과 관계 포착
-- **5. Zero-Generation Token 배치 추론 최적화**:
-  - 생성 토큰 0개로 디코더 메모리 대역폭 병목 완전 제거
-  - 5개 후보를 단일 배치로 묶어 CPU 50-80ms 내 단 1회 전파로 최적 1문장 확정
-- **6. Hono 상주 서빙 (`onnxruntime-node`)**:
-  - C++ 네이티브 바인딩을 활용해 Hono 서버 프로세스 기동 시 1회 메모리 프리로드(`preload=True`)
-  - Python 별도 컨테이너 없이 TypeScript 단일 모노레포 사수 및 Cloud Run 무료 한도(월 18만 vCPU-초) 완벽 준수
+  - Web Crypto API(AES-256-GCM + PBKDF2)로 브라우저 로컬에서 노트를 암호화하고, `DeskView` 패스프레이즈 기반으로 `/api/sync` 암호문 블롭만 전송
+- **3. 파이프라인 책임 분리 (Python OCR 사이드카 + System 2 생성 + `gemini-decision-1` 판별)**:
+  - *Tier 1*: `jysvai/ko-hand-ocr` Python HTTP 사이드카(`services/ocr/`, `OCR_ENDPOINT_URL` 미설정 시 Gemini 멀티모달 폴백)
+  - *Tier 2*: System 2 (`gemini-4-hydrogen`/`gemini-flash`) 5-Way 직교 가설 후보 풀(`candidatePool`) 생성
+  - *Tier 3*: Google **`gemini-decision-1`** (Decisions API) — 시각 기호 판별 및 5개 후보 각각의 독립 점수/확률(`0.00-1.00`) 산출 후 1위 문장 선택
+- **4. `X` 기각 동적 임계치(`reuseThreshold`) 및 개발자 테스트 뷰**:
+  - `X` 기각 시 남은 후보 최고 점수가 `reuseThreshold`(기본 `0.60`, 테스트 UI 슬라이더로 실시간 조정) 이상이면 `0ms` 차순위 재사용, 미만이면 5개 재생성
+  - `PipelineDevView`·`HandwritingOcrDevView`에서 5개 후보 전체와 각 확률을 직접 확인하며 임계치를 튜닝
 
 ---
 

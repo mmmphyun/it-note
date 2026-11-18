@@ -97,23 +97,19 @@ flowchart TD
      * **예시**: 초기 입력이 `"DevSecOps 취준생"`뿐이었더라도, 메모가 쌓이면 본인 정보 맥락에 `"현재 진행 중인 관심사: Svelte 5 + Hono 모노레포 기반 '잇적' 앱 개발, Jev 의사결정 모델 연동, gitleaks 하드가드 구축"`이 자동으로 축적되어, 한 달 뒤에 단어 두 개만 적어도 이 누적된 본인 맥락 위에서 정확히 추론합니다.
   3. **직전 확정 문장 레퍼런스 (Recent 5-10 Confirmed Notes)**: 사용자의 선호 문장 호흡과 어투를 유지하기 위해 가장 최근 `O`를 친 문장 원문 5-10개를 함께 주입합니다.
 
-### 2.6. [ADR / v2 백로그] 온디바이스 손글씨 OCR 및 SemIf-OpenJev 3-Tier 파이프라인
+### 2.6. [ADR 개정] Python 네이티브 손글씨 OCR(`jysvai/ko-hand-ocr`) + Google `gemini-decision-1` 파이프라인
 * **논의 배경 (Context & Motivation)**:
-  * 경량 한국어 손글씨 OCR 모델(`VerifiedIdiot/korean-handwriting-rec` PP-OCRv5 ONNX ~15MB) 및 로짓 판별 엔진(`TheoLeeCJ/SemIf-OpenJev`)의 발굴.
-  * 픽셀 이미지를 외부 클라우드 VLM에 통째로 전송하는 기존 방식 대비, [로컬 OCR $\to$ 로컬 SemIf $\to$ 클라우드 LLM 윤문]으로 분리하면:
-    1. **토큰 및 비용 90% 이상 절감**: 멀티모달 이미지 토큰(258~1,000+ 토큰) $\to$ 순수 텍스트 JSON 토큰(30~50 토큰). 페이로드 크기 역시 수십 KB Base64에서 수백 바이트로 축소.
-    2. **완전한 Zero-Outbound 기밀성 (DevSecOps)**: 사용자의 실제 손글씨 필적과 래스터 픽셀이 외부 네트워크로 단 1바이트도 나가지 않고 로컬에서 파기됨.
-    3. **구조화된 입력 $\to$ 구조화된 출력 (Structured In $\to$ Structured Out)**: `SemIf-OpenJev`가 Qwen-1.5B 가중치에서 1회 포워드 패스 로짓 판독(Logit Readout, 30ms CPU)으로 `Noul`과 `Choice`를 확정하고, LLM에게 기호적 관계(Symbolic Relation)를 명시 주입하여 환각 없는 정확한 가설을 생성.
-* **SemIf 도입 시점 정의 (로컬 OCR과 동시 도입 필수 원칙)**:
-  * **왜 SemIf를 지금 단독 도입하지 않는가?**: `SemIf-OpenJev`는 텍스트 기호를 입력받아 선택지 로짓을 읽는 모델이며, 이미지 픽셀을 직접 읽지 못합니다. 로컬 OCR이 없다면 결국 클라우드 VLM이 이미지를 읽어야 하므로 SemIf 단독 도입은 모순이 발생합니다.
-  * **결론**: **로컬 손글씨 OCR 모델(Tier 2A)과 SemIf-OpenJev 로짓 엔진(Tier 2B)은 한 쌍의 원자적 패키지로 함께 도입**되어야만 성립합니다.
-* **잠재적 위험 및 기술적 과제 (Risks & Red Teaming)**:
-  1. **텍스트 영역 탐지(Text Detection)의 부재**: 공개된 경량 모델들은 잘라낸 1줄 단어를 읽는 Recognizer이므로, 2400×1800 캔버스에서 단어 단위 Bounding Box를 분할하고 화살표/취소선 벡터와 글자 획을 분리하는 클러스터링(DBSCAN / DBNet) 전처리 파이프라인 구축 공수 발생.
-  2. **연쇄 오차 전파 (Cascading Error)**: 앞단 로컬 OCR의 문자 왜곡이 심할 경우, 정형 JSON에 고정되어 뒤쪽 LLM으로 전파될 위험.
-  3. **네이티브 C++ 바인딩(`onnxruntime-node`, `llama.cpp`) 배포 위험**: Windows 개발 환경과 최종 Linux Docker 배포 환경 간의 `node-gyp`, `glibc`, 아키텍처 의존성 충돌 위험.
-* **마일스톤 2.5를 신설하지 않고 v2 백로그로 격리한 이유 (Decision Rationale)**:
-  * **핵심 비즈니스 검증 보호**: 채용 시장에서 가장 중요하게 검증되는 마일스톤 3 (카카오/구글 OAuth 소셜 로그인, 7일 드래그 온보딩, PG사 결제 승인/웹훅 멱등성, 단일 Dockerfile 배포)의 일정을 사수해야 함.
-  * **조기 최적화(Premature Optimization) 방지 (Ponytail 원칙)**: 현재 `gemini-3.8-flash` VLM이 단 1회 호출로 이미지, 화살표, 취소선, 문맥을 올인원으로 처리하고 있으므로, 3-Tier 로컬 모델 전환은 실제 트래픽과 API 비용이 병목이 되는 시점에 최우선 과제로 추진.
+  * 기존 v2 계획의 `VerifiedIdiot/korean-handwriting-rec` ONNX 및 `klue/roberta-large` (`onnxruntime-node`) 구상을 폐기하고, 한국어 손글씨 인식 정확도와 운영 단순성을 동시에 달성하는 구조로 전환합니다.
+  * `jysvai/ko-hand-ocr`은 PyTorch 기반 Python 패키지(`kohandocr`)이므로, ONNX 변환 시 자모 디코딩 및 줄 분할 성능 저하 위험을 피하기 위해 Python 네이티브 HTTP 사이드카(`services/ocr/`, `OCR_ENDPOINT_URL`) 예외를 허용합니다.
+  * 단, `ko-hand-ocr`은 순수 문자 인식에 특화되어 취소선·화살표·동그라미 같은 시각 기호를 판별할 수 없으므로, 시각 기호 분류와 5-Way 후보 채점은 멀티모달 네이티브 System 1 모델인 Google **`gemini-decision-1`** (Decisions API)에 일임합니다.
+* **아키텍처 역할 분담 (4-Step Separation)**:
+  1. **로컬 OCR (`services/ocr/` — `jysvai/ko-hand-ocr`)**: 필기 영역 이미지에서 한국어 텍스트만 고정밀 추출(`OCR_ENDPOINT_URL` 미설정 시 Gemini 멀티모달 OCR로 폴백).
+  2. **기하학 좌표 고정 (`marginBox`)**: 여백 대필 좌표는 AI 모델 추론을 배제하고 `strokeMetadata.bbox`와 뷰포트 기준 수학 수식으로 결정론적 산출.
+  3. **System 2 (`gemini-4-hydrogen` / `gemini-flash`)**: OCR 텍스트·System 1 판별 결과·장기 맥락을 결합해 5개 직교 후보 문장(`candidatePool`) 생성.
+  4. **System 1 (`gemini-decision-1` Decisions API)**: 시각 기호(`strikethroughIntent`, `visualStructure`, `inputClassification`, `isContinuousWithPrevious`) 판별 및 5개 후보 각각의 독립 점수/확률(`candidateScores`, `0.00-1.00`) 산출.
+* **`X` 기각 시 동적 임계치(`reuseThreshold`) 기반 차순위 재사용**:
+  * 사용자가 1위 문장에 `X`를 쳐서 기각할 때, 미기각 잔여 후보 중 최고 점수가 `reuseThreshold`(기본값 `0.60`, 개발자 테스트 뷰 및 쿼리로 실시간 조정 가능) 이상이면 추가 추론 API 호출 없이 `0ms` 즉시 차순위 후보를 대필합니다.
+  * 잔여 후보 점수가 모두 `reuseThreshold` 미만이거나 풀을 소진한 경우에만 `rejectedHypotheses`를 제약 조건으로 주입해 System 2 5개 후보를 재생성합니다.
 
 ### 2.7. [ADR / v2 백로그] 선제적 투기적 추론(Speculative Pre-Inference) 및 로컬 Jev 장기 맥락 자연어 검색
 * **논의 배경 (Context & Motivation)**:
@@ -126,7 +122,7 @@ sequenceDiagram
     autonumber
     actor User as 사용자 (스타일러스 펜)
     participant Canvas as Canvas 상태 머신
-    participant LocalJev as 로컬 경량 Jev (pg-jev / SemIf)
+    participant LocalJev as 로컬 경량 Jev (localJevMatcher)
     participant Infer as 추론 엔진 (VLM / SLM)
 
     Note over Canvas: [개선 전 파이프라인: 총 90초 후 동기 호출 (체감 지연 1~2초)]
@@ -157,15 +153,14 @@ sequenceDiagram
      * 사용자가 펜을 뗀 뒤 **1.5초 동안 추가 입력이 없으면(Stroke Idle)**, 잉크가 유지되고 증발하는 30~90초 대기 시간 동안 백그라운드에서 필기 인식(OCR)과 Jev 가설 생성을 미리 수행하여 클라이언트 캐시에 보관합니다.
      * 잉크 투명도가 0이 되는 순간 네트워크 대기 없이 **지연 시간 0ms로 즉시 완성된 가설 문장을 대필**합니다.
      * 대기 중 사용자가 캔버스에 펜을 다시 대면 이전 투기적 실행을 `AbortController`로 즉시 취소하고 캐시를 무효화하여 불필요한 연산을 방어합니다.
-  2. **로컬 경량 Jev(`pg-jev` + `SemIf-OpenJev` 로컬 엔드포인트) 기반 장기 맥락 자연어 검색**:
+  2. **로컬 경량 Jev(`localJevMatcher`) 기반 장기 맥락 자연어 검색**:
      * PostgreSQL 기반의 Jev 임베딩/의사결정 확장기(`realZachi/pg-jev`)를 클라우드 API가 아닌 **로컬 경량 Jev 인스턴스(IPC 또는 루프백 바인딩)**와 결합합니다.
      * 30초 펜 유휴 시간 동안 과거 수백 개의 확정 노트를 대상으로 자연어 조건/의미적 유사도(`pg-jev`의 Jev 의사결정 조건문)를 로컬에서 초고속(수 ms)으로 질의합니다.
      * 외부 API 호출 비용과 190ms 네트워크 왕복 지연 없이, "오늘 작성 중인 메모와 의미적으로 가장 밀접한 과거 맥락 Top-3"을 동적으로 추출하여 가설 생성기에 주입합니다.
-  3. **한국어 특화 인코더 Jev 판별 엔진 (Zero-Generation Token, Batch=5 1회 패스)**:
-     * 4B급 무거운 생성형 디코더 대신 **한국어 특화 인코더(`klue/roberta-large` INT8 ONNX ~330MB)**를 채택합니다.
-     * 5개 후보 문장과 사용자 맥락을 `batch_size=5`로 묶어 **단 1회 순전파(Forward Pass, 50~80ms CPU)**로 로짓을 추출하여 최적 1문장을 `Choice`합니다.
-     * Hono 백엔드 내부에서 C++ 네이티브 바인딩인 `onnxruntime-node`로 기동 시 1회 프리로드(`preload=True`)하여 서빙하며, Python 별도 컨테이너 없이 TypeScript 단일 모노레포를 100% 사수합니다.
-     * 디코딩 토큰 0개로 Cloud Run 무료 티어(월 18만 vCPU-초) 및 5초 SLA를 압도적으로 방어합니다.
+  3. **Google System 1 (`gemini-decision-1` Decisions API) 기반 멀티모달 판별 및 5-Way 리랭킹**:
+     * 기존 `klue/roberta-large` INT8 ONNX(`onnxruntime-node`) 계획을 폐기하고 Google **`gemini-decision-1`** Decisions API를 채택합니다.
+     * 출력 토큰이 0개인 비자기회귀 판별 모델을 통해 필기 이미지의 시각 기호 분류와 System 2 5개 후보 문장의 독립 Rubric Score(`0.00-1.00`)를 단일 패스(150-250ms)로 산출합니다.
+     * 가중치 330MB 다운로드, 커스텀 WordPiece 토크나이저, C++ 네이티브 바인딩 배포 리스크를 전면 제거합니다.
 * **트레이드오프 및 리스크 분석 (Trade-offs & Red Teaming)**:
   * **불필요한 연산 낭비 위험**: 1.5초마다 투기적 실행을 돌릴 경우, 사용자가 생각을 가다듬으며 펜을 여러 번 뗐다 붙일 때 중복 연산 비용이 발생할 수 있습니다.
     * *완화책*: 로컬 경량 모델 도입 전까지는 클라우드 VLM 호출에 5~10초 Debounce 윈도우를 적용하고, 펜이 다시 닿으면 즉시 요청 취소(`req.signal.aborted`)를 처리합니다.
@@ -233,16 +228,14 @@ c:/work/it!note/
 * **Phase 3: `apps/web` Zero-UI 캔버스(30초 대기 + 1분 증발, 여유 스크롤) 및 한글 획순 단일 문장 대필 + O/X 인터랙션 구현**
 * **Phase 4: `apps/server` Dual-Process (`Jev` + `VLM`) 추론 엔진 + `O` 확정 기반 본인 맥락 누적기(`profileEnricher.ts`) 연동 및 컨테이너 패키징**
 
-### [v2 확장 백로그 및 고도화 — 마일스톤 4]
-* **마일스톤 4: 한국어 특화 인코더 배치 Jev 엔진 및 Zero-Knowledge E2EE 동기화**
-  - **선제적 투기적 실행 (Speculative Execution)**: 펜 유휴 1.5초 감지 즉시 30초 증발 대기 중 백그라운드 선제적 인식 및 가설 생성 (0ms 제로 레이턴시 대필).
-  - **로컬 Jev 장기 맥락 연동 (`localJevMatcher`)**: `pg-jev` 알고리즘 기반 과거 확정 노트 로컬 메모리 스캔 (최근 5개 FIFO 한계 극복, 과거 연관 맥락 Top-3 동적 결합).
-  - **Zero-Knowledge E2EE 종단간 암호화 동기화**: Web Crypto API(AES-256-GCM + PBKDF2)로 브라우저 로컬에서 노트를 암호화하고, 서버에는 암호문 블롭만 전송하여 멀티 디바이스 동기화 및 Zero-Knowledge 기밀성 동시 달성.
-  - **아키텍처 역할 분리**: 5-Way 직교 가설 생성(Generator)과 한국어 특화 인코더 판별(Discriminator)을 엄격히 격리.
-  - **한국어 특화 인코더 선정**: `klue/roberta-large` INT8 ONNX (~330MB).
-  - **Zero-Generation Token 배치 추론**: 5개 후보 문장을 `batch_size=5` 단일 텐서 1회 순전파(50-80ms CPU)로 로짓을 산출하여 최적 1문장을 `Choice`로 확정.
-  - **Hono 상주 서빙 (`onnxruntime-node`)**: C++ 네이티브 바인딩으로 기동 시 1회 프리로드(`preload=True`)하여 상주 서빙, Python 별도 컨테이너 없이 TypeScript 단일 모노레포 사수.
-  - **효과**: 완벽한 Zero-Knowledge 기밀성 보장, 기기 간 안전한 동기화, Cloud Run 무료 한도(월 18만 vCPU-초) 사수, 5초 SLA 압도적 준수.
+### [v2 확장 백로그 및 고도화 — 마일스톤 4 개정안]
+* **마일스톤 4 (개정): Google `gemini-decision-1` 판별 엔진 · `ko-hand-ocr` 사이드카 · Zero-Knowledge E2EE 동기화**
+  - **선제적 투기적 실행 (Speculative Execution)**: 펜 유휴 1.5초 감지 즉시 30초 증발 대기 중 백그라운드 선제적 인식 및 가설 생성 (0ms 제로 레이턴시 대필, `extractedKeywords`·`candidatePool` 보존).
+  - **로컬 Jev 장기 맥락 연동 (`localJevMatcher`)**: `pg-jev` 알고리즘 기반 과거 확정 노트(IndexedDB 영속 저장) 로컬 메모리 스캔 및 과거 연관 맥락 Top-3 동적 결합.
+  - **Zero-Knowledge E2EE 종단간 암호화 동기화**: Web Crypto API(AES-256-GCM + PBKDF2)로 브라우저 로컬에서 노트를 암호화하고, `DeskView` 패스프레이즈 설정 UI를 통해 `/api/sync` 암호문 동기화 완결.
+  - **로컬 손글씨 OCR (`jysvai/ko-hand-ocr` Python 사이드카 예외)**: `services/ocr/` HTTP 어댑터(`OCR_ENDPOINT_URL`)로 한국어 손글씨 텍스트 추출(미설정 시 Gemini 멀티모달 폴백).
+  - **System 2 5-Way 생성 & System 1 (`gemini-decision-1`) 판별 분리**: `gemini-4-hydrogen`/`gemini-flash`가 5개 후보 문장을 생성하고, `gemini-decision-1`이 시각 기호 분류 및 후보별 독립 점수/확률(`candidateScores`)을 산출해 1위 문장 선택.
+  - **동적 기각 임계치(`reuseThreshold`) 및 개발자 테스트 뷰 개편**: `PipelineDevView`·`HandwritingOcrDevView`에서 5개 후보 문장과 각각의 확률·점수를 시각화하고, `X` 기각 시 임계치 조절에 따른 차순위 즉시 재사용 vs 5개 재생성 분기를 실시간 검증.
 * Notion OAuth 데이터베이스 자동 푸시 및 Slack Webhook 연동
 * Pro 구독자 전용 심화 기능 확장 (장기 아카이브 시맨틱 검색 등)
 
@@ -287,21 +280,29 @@ stateDiagram-v2
 * **데이터 인덱싱 및 쿼리 파이프라인**:
   1. 사용자가 문장에 동그라미(`O`)를 쳐서 흡수시킬 때마다 로컬 DB `confirmed_notes` 테이블에 텍스트와 Jev 프리디케이트를 저장합니다.
   2. 1.5초 펜 유휴 감지 시, 작성 중인 텍스트/키워드를 조건문으로 전달하여 로컬 인덱스를 스캔합니다.
-  3. `SemIf` 기반 의사결정 판별기를 통해 "현재 작성 중인 키워드와 인과적·주제적으로 연관된 과거 노트인가?"를 판별하여 Top-3 맥락을 도출합니다.
+  3. `localJevMatcher` 기반 유사도·최신성 판별기를 통해 "현재 작성 중인 키워드와 인과적·주제적으로 연관된 과거 노트인가?"를 판별하여 Top-3 맥락을 도출합니다.
   4. 도출된 Top-3 맥락을 선제 가설 생성기의 프롬프트에 동적 결합합니다.
 
-### 5.3. 3-Tier 신경망 파이프라인 (Vision OCR + KLUE-RoBERTa 인코더 Jev + Generation)
-* **Tier 1: 로컬 경량 손글씨 OCR (Vision Recognizer)**:
-  - 모델: `VerifiedIdiot/korean-handwriting-rec` (PP-OCRv5 ONNX ~15MB).
-  - 역할: 캔버스 래스터 픽셀에서 한글 텍스트 및 기호(`->`, `~~`)를 추출합니다.
-  - 실행 환경: 브라우저 WebAssembly 또는 백엔드 Node CPU.
-* **Tier 2: 한국어 특화 인코더 Jev 판별 엔진 (`KLUE-RoBERTa-large` INT8 ~330MB)**:
-  - 런타임: Hono 백엔드 내부 C++ 바인딩 `onnxruntime-node` (기동 시 1회 메모리 프리로드).
-  - 역할: 5개 직교 가설 문장을 `batch_size=5` 단일 텐서로 묶어 **생성 토큰 0개의 1회 포워드 패스(50~80ms CPU)**로 로짓을 산출하고 최적 1문장을 `Choice`로 확정합니다.
-  - 효과: 4B 디코더 대비 메모리 1/10 수준, Cloud Run 무료 한도(월 18만 vCPU-초) 완벽 방어, 5초 SLA 압도적 준수.
-* **Tier 3: 5-Way 직교 가설 문장 합성기 (Hypothesis Synthesizer)**:
-  - 역할: 사용자 메모와 맥락을 바탕으로 5개의 직교 관점(프로젝트, 루틴, 피벗, 장기 맥락, 정의) 가설 문장을 생성합니다.
-  - 모델: 클라우드 Gemini Flash 또는 로컬 경량 생성기.
+### 5.3. 3-Tier 하이브리드 파이프라인 (Python OCR 사이드카 + System 2 생성 + `gemini-decision-1` 판별)
+* **Tier 1: 한국어 손글씨 OCR (`jysvai/ko-hand-ocr` Python 사이드카 예외)**:
+  - 모델: `localdeel/ko-hand-ocr` (41M / 앙상블, `services/ocr/` FastAPI HTTP 사이드카).
+  - 역할: ONNX 변환으로 인한 자모 디코딩·줄 분할 성능 저하 없이 필기 크롭 이미지에서 순수 한국어 텍스트를 추출합니다 (`OCR_ENDPOINT_URL` 미설정 시 Gemini 멀티모달 OCR로 폴백).
+* **Tier 2: System 2 — 5-Way 직교 가설 문장 합성기 (Hypothesis Synthesizer)**:
+  - 모델: `gemini-4-hydrogen` / `gemini-flash` (`system2Writer.ts`).
+  - 역할: OCR 텍스트·시각 기호 판별 결과·장기 맥락을 바탕으로 5개의 직교 관점(프로젝트, 루틴, 피벗, 장기 맥락, 개념 정의) 후보 문장(`candidatePool`)을 생성합니다.
+* **Tier 3: System 1 — Google `gemini-decision-1` 판별 엔진 (Decisions API)**:
+  - 역할: 출력 토큰 0개의 단일 병렬 패스(150-250ms)로 시각 기호(`strikethroughIntent`, `visualStructure`, `inputClassification`, `isContinuousWithPrevious`)를 분류하고, System 2가 생성한 5개 후보 각각의 독립 점수/확률(`candidateScores`, `0.00-1.00`)을 산출해 1위 문장을 확정합니다.
+  - 여백 좌표(`marginBox`)는 AI 호출 없이 `strokeMetadata.bbox`와 뷰포트 기준 수학적 수식으로 고정합니다.
+  - **`X` 기각 시 동적 임계치 재사용**: 기각 시 미기각 후보 중 최고 점수가 `reuseThreshold`(기본 `0.60`, 테스트 뷰 슬라이더·쿼리로 실시간 조정) 이상이면 `0ms` 즉시 차순위 문장을 대필하고, 미만이면 `rejectedHypotheses`를 반영해 5개 후보를 재생성합니다.
+
+### 5.3.1. 개발자 검증 페이지 개편 (`PipelineDevView` & `HandwritingOcrDevView`)
+* **목적**: 실제 튜닝 과정에서 System 2가 만든 5개 후보가 무엇인지, System 1(`gemini-decision-1`)이 각 후보에 부여한 확률/점수가 얼마인지, 그리고 임계치(`reuseThreshold`) 변화에 따라 `X` 기각이 어떻게 분기하는지 실시간 검증합니다.
+* **`PipelineDevView.svelte` (`/?view=dev`)**:
+  - 상단 컨트롤 패널에 `reuseThreshold` 실시간 슬라이더(`0.00-1.00`, `0.05` 단위) 배치.
+  - 결과 카드 내에 5개 후보 문장 전체와 각 후보의 확률/점수(`0%-100%` 프로그레스 바 + 원점수), 채택/기각/재사용 가능 배지를 표시.
+  - `X 마킹` 클릭 시 임계치 이상 차순위 즉시 전환(`0ms`) vs 임계치 미만 5개 재생성(`/api/infer` 재호출) 동작을 즉각 확인.
+* **`HandwritingOcrDevView.svelte` (`/?view=handwriting`)**:
+  - OCR 경로 배지(`ko-hand-ocr Python 사이드카` vs `Gemini Multimodal Fallback`)와 5개 후보 문장 및 점수 테이블 표시.
 
 ### 5.4. 데이터 인터페이스 및 스키마 규격 (`packages/shared`)
 ```typescript
@@ -349,9 +350,9 @@ export interface PrefetchedHypothesisSlot {
 * **Step 5-3: 로컬 Jev 기반 장기 맥락 인덱서 구축**:
   - 로컬 확정 노트 테이블 스키마 신설 및 시맨틱 링커 모듈 작성.
   - 최근 5개 FIFO 대비 과거 연관 맥락 탐색 정확도 평가.
-* **Step 5-4: 3-Tier 온디바이스 모델 통합 및 레이턴시 벤치마크**:
-  - ONNX Runtime 기반 PP-OCRv5 및 SemIf 로짓 판독 바인딩.
-  - 잉크 증발 만료 시점 체감 대기 시간 0ms 및 CPU 연산 100ms 이내 서빙 달성 검증.
+* **Step 5-4: `ko-hand-ocr` 사이드카 · `gemini-decision-1` 판별기 통합 및 개발자 테스트 뷰 튜닝**:
+  - Python `services/ocr/` HTTP 어댑터 연동 및 Google `gemini-decision-1` Rubric Scoring 바인딩.
+  - `PipelineDevView`·`HandwritingOcrDevView`에서 5개 후보·확률 표출 및 `reuseThreshold` 실측 튜닝 완료.
 
 ### 5.6. 리스크 분석 및 폴백 방어책 (Red Teaming)
 * **펜 연속 터치(Stuttering) 연산 폭주 방지**:

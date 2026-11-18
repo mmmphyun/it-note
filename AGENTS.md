@@ -5,7 +5,8 @@
 ---
 
 ## 1. 기술 스택 및 모노레포 구조 불변 규칙
-- **언어 통일 (End-to-End TypeScript)**: 프론트엔드, 백엔드, 공유 스키마(`packages/shared`) 모두 Strict TypeScript로 작성하며 `any` 타입 사용을 금지합니다.
+- **언어 통일 (End-to-End TypeScript + Python OCR 사이드카 예외)**: 프론트엔드, 백엔드, 공유 스키마(`packages/shared`)는 모두 Strict TypeScript로 작성하며 `any` 타입 사용을 금지합니다.
+  - **예외 조항 (OCR Sidecar)**: 한국어 손글씨 인식 모델(`jysvai/ko-hand-ocr`)의 네이티브 정확도와 자모 결합 성능 보존을 위해 `services/ocr/` 디렉토리 하위의 Python HTTP 사이드카(`OCR_ENDPOINT_URL`)만 유일한 비-TypeScript 런타임 예외로 허용합니다. 사이드카 미실행 시 백엔드는 Gemini 멀티모달 OCR로 자동 폴백해야 합니다.
 - **Frontend (`apps/web` — Vite + Svelte 5)**:
   - 가상 DOM 오버헤드 없는 **Svelte 5 Runes (`$state`, `$derived`, `$effect`)** 문법만 사용합니다 (레거시 Svelte 3/4 `export let`, `$:` 구문 금지).
   - 120Hz `PointerEvent` 펜 좌표 스트림은 반응형 상태 리렌더링 병목을 피하기 위해 순수 TS 버퍼/Canvas Context에서 직접 처리합니다.
@@ -28,13 +29,14 @@
 ---
 
 ## 3. Dual-Process AI 추론 및 단일 문장 피드백 루프
-- **System 1 (`system1Jev.ts`)**:
-  - TypeSafe AI `Jev` 또는 오픈소스 `OpenJev` (`/v1/systemone`) 규격을 사용합니다.
-  - 자유 텍스트를 생성하지 않고 오직 구조화된 의사결정 프리미티브(`Noul`, `Choice`, `Score`, `Box`)만 반환해야 합니다.
+- **System 1 (`system1Jev.ts` & `gemini-decision-1`)**:
+  - Google Decisions API(`gemini-decision-1`) 또는 `Jev`/`OpenJev` 규격을 사용합니다.
+  - 자유 텍스트를 생성하지 않고 시각 기호 분류 프리미티브(`Noul`, `Choice`)와 5개 후보 문장 각각의 독립 점수/확률(`candidateScores`)만 반환해야 합니다.
+  - 여백 좌표(`Box`)는 AI 추론이 아닌 `strokeMetadata.bbox`와 뷰포트 기준 기하학 수식으로 결정론적 계산합니다.
 - **System 2 (`system2Writer.ts`) & 단일 문장 제시**:
-  - 여러 줄의 보기를 나열하지 않고, `Jev`가 확정한 최우선 맥락에 따라 **단 1개의 완결된 추론 문장**만 여백에 한글 획순으로 적습니다.
+  - System 2가 생성한 5개 직교 후보 풀(`candidatePool`) 중 System 1이 최고 점수로 확정한 **단 1개의 완결된 추론 문장**만 여백에 한글 획순으로 적습니다.
   - 사용자가 동그라미(`O`)를 치면 문장이 종이로 흡수(Sink-in)되어 화면에서 사라지고 확정 노트로 저장됩니다.
-  - 사용자가 엑스(`X`)를 치면 **"이전 추론 문장이 기각되었음(오답 맥락)"**을 제약 조건에 추가하여 즉시 다음 최선책 문장 1개를 새로 추론해 적습니다.
+  - 사용자가 엑스(`X`)를 치면 미기각 잔여 후보의 최고 점수가 동적 임계치(`reuseThreshold`, 기본 `0.60`) 이상일 때 `0ms` 즉시 차순위 문장을 대필하고, 임계치 미만일 때만 **"이전 추론 문장이 기각되었음(오답 맥락)"**을 제약 조건에 추가해 5개 후보를 새로 추론합니다.
 
 ---
 
