@@ -373,4 +373,179 @@ describe('CanvasLifecycleEngine - 가상 타이머 수명 주기 통합 테스�
     expect(engine.activeHypothesis!.sentence).toContain('NestJS');
     expect(engine.activeHypothesis!.keywords).toEqual(['FastAPI', 'NestJS']);
   });
+
+  it('X 기각 시 차순위 후보 점수가 reuseThreshold 이상이면 API 재호출 없이 즉시 차순위 문장을 대필해야 한다', async () => {
+    const inferMock = vi.fn(async () => ({
+      sentence: '1위 프로젝트 가설 문장입니다.',
+      jevDecision: {
+        isContinuousWithPrevious: { type: 'noul' as const, probability: 0.2, value: false },
+        strikethroughIntent: { type: 'choice' as const, selected: 'NONE' as const, confidence: 0.9 },
+        visualStructure: { type: 'choice' as const, selected: 'ISOLATED' as const, confidence: 0.9 },
+        domainRoute: { type: 'choice' as const, selected: 'SIDE_PROJECT_SPARK' as const, confidence: 0.9 },
+        marginBox: { type: 'box' as const, coordinates: [200, 100, 600, 205] as [number, number, number, number] },
+      },
+      extractedKeywords: { active: ['Svelte'], struckOut: [] },
+      candidatePool: {
+        candidate_project: '1위 프로젝트 가설 문장입니다.',
+        candidate_routine: '2위 루틴 가설 문장입니다.',
+        candidate_pivot: '3위 피벗 가설 문장입니다.',
+        candidate_longterm: '4위 장기 맥락 문장입니다.',
+        candidate_definition: '5위 정의 문장입니다.',
+      },
+      rerankerResult: {
+        selectedKey: 'candidate_project' as const,
+        winningSentence: '1위 프로젝트 가설 문장입니다.',
+        confidenceScore: 0.88,
+        reasonNoul: '프로젝트 적합',
+        candidateScores: {
+          candidate_project: 0.88,
+          candidate_routine: 0.72,
+          candidate_pivot: 0.45,
+          candidate_longterm: 0.50,
+          candidate_definition: 0.40,
+        },
+      },
+    }));
+
+    const engine = new CanvasLifecycleEngine({ onInferRequested: inferMock }, false);
+    engine.setReuseThreshold(0.60);
+
+    // 필기 후 90초 증발로 첫 추론 수행
+    engine.pointerDown({ x: 100, y: 100, t: 0 });
+    engine.pointerUp(1000);
+    engine.tick(91000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(inferMock).toHaveBeenCalledTimes(1);
+    expect(engine.activeHypothesis!.sentence).toBe('1위 프로젝트 가설 문장입니다.');
+
+    // X 기각 제스처 (문장 가로지르기)
+    const [bx, by, bw, bh] = engine.activeHypothesis!.bbox;
+    engine.pointerDown({ x: bx + 10, y: by + bh / 2, t: 92000 });
+    engine.pointerMove({ x: bx + bw - 10, y: by + bh / 2, t: 92100 });
+    engine.pointerUp(92200);
+    engine.tick(93800); // 1500ms 제스처 유예 경과 -> X 기각
+    expect(engine.activeHypothesis!.isRejected).toBe(true);
+
+    // 650ms 스모크아웃 경과 -> 차순위(0.72 >= 0.60) 즉시 대필, API 재호출 없음
+    engine.tick(94500);
+    expect(inferMock).toHaveBeenCalledTimes(1);
+    expect(engine.activeHypothesis!.isRejected).toBe(false);
+    expect(engine.activeHypothesis!.sentence).toBe('2위 루틴 가설 문장입니다.');
+  });
+
+  it('X 기각 시 잔여 후보 최고 점수가 reuseThreshold 미만이면 /api/infer를 재호출해 5개 후보를 재생성해야 한다', async () => {
+    let callCount = 0;
+    const inferMock = vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          sentence: '첫 추론 1위 문장입니다.',
+          jevDecision: {
+            isContinuousWithPrevious: { type: 'noul' as const, probability: 0.2, value: false },
+            strikethroughIntent: { type: 'choice' as const, selected: 'NONE' as const, confidence: 0.9 },
+            visualStructure: { type: 'choice' as const, selected: 'ISOLATED' as const, confidence: 0.9 },
+            domainRoute: { type: 'choice' as const, selected: 'SIDE_PROJECT_SPARK' as const, confidence: 0.9 },
+            marginBox: { type: 'box' as const, coordinates: [200, 100, 600, 205] as [number, number, number, number] },
+          },
+          extractedKeywords: { active: ['Hono'], struckOut: [] },
+          candidatePool: {
+            candidate_project: '첫 추론 1위 문장입니다.',
+            candidate_routine: '낮은 점수 차순위 문장입니다.',
+            candidate_pivot: '낮은 점수 피벗 문장입니다.',
+            candidate_longterm: '낮은 점수 장기 문장입니다.',
+            candidate_definition: '낮은 점수 정의 문장입니다.',
+          },
+          rerankerResult: {
+            selectedKey: 'candidate_project' as const,
+            winningSentence: '첫 추론 1위 문장입니다.',
+            confidenceScore: 0.85,
+            reasonNoul: '프로젝트 적합',
+            candidateScores: {
+              candidate_project: 0.85,
+              candidate_routine: 0.42,
+              candidate_pivot: 0.35,
+              candidate_longterm: 0.30,
+              candidate_definition: 0.25,
+            },
+          },
+        };
+      }
+      return {
+        sentence: '재생성된 신규 가설 문장입니다.',
+        jevDecision: {
+          isContinuousWithPrevious: { type: 'noul' as const, probability: 0.2, value: false },
+          strikethroughIntent: { type: 'choice' as const, selected: 'NONE' as const, confidence: 0.9 },
+          visualStructure: { type: 'choice' as const, selected: 'ISOLATED' as const, confidence: 0.9 },
+          domainRoute: { type: 'choice' as const, selected: 'GENERAL_IDEA' as const, confidence: 0.9 },
+          marginBox: { type: 'box' as const, coordinates: [200, 100, 600, 205] as [number, number, number, number] },
+        },
+        extractedKeywords: { active: ['Hono'], struckOut: [] },
+      };
+    });
+
+    const engine = new CanvasLifecycleEngine({ onInferRequested: inferMock }, false);
+    engine.setReuseThreshold(0.60);
+
+    engine.pointerDown({ x: 100, y: 100, t: 0 });
+    engine.pointerUp(1000);
+    engine.tick(91000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(inferMock).toHaveBeenCalledTimes(1);
+
+    const [bx, by, bw, bh] = engine.activeHypothesis!.bbox;
+    engine.pointerDown({ x: bx + 10, y: by + bh / 2, t: 92000 });
+    engine.pointerMove({ x: bx + bw - 10, y: by + bh / 2, t: 92100 });
+    engine.pointerUp(92200);
+    engine.tick(93800);
+    engine.tick(94500);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(inferMock).toHaveBeenCalledTimes(2);
+    expect(engine.activeHypothesis!.sentence).toBe('재생성된 신규 가설 문장입니다.');
+  });
+
+  it('선제 투기 실행 캐시 소비 시 extractedKeywords와 candidatePool이 함께 복원되어야 한다', async () => {
+    const engine = new CanvasLifecycleEngine({}, false);
+    vi.spyOn(engine.speculativePipeline, 'consumePrefetchedHypothesis').mockReturnValue({
+      hypothesisSentence: '선제 생성된 Svelte 5 문장 맞나요?',
+      candidateKey: 'candidate_project',
+      confidenceScore: 0.91,
+      fetchedAt: 5000,
+      isStale: false,
+      extractedKeywords: { active: ['Svelte 5', 'Zero-UI'], struckOut: [] },
+      candidatePool: {
+        candidate_project: '선제 생성된 Svelte 5 문장 맞나요?',
+        candidate_routine: '루틴 문장',
+        candidate_pivot: '피벗 문장',
+        candidate_longterm: '장기 문장',
+        candidate_definition: '정의 문장',
+      },
+      rerankerResult: {
+        selectedKey: 'candidate_project',
+        winningSentence: '선제 생성된 Svelte 5 문장 맞나요?',
+        confidenceScore: 0.91,
+        reasonNoul: '선제 채택',
+        candidateScores: {
+          candidate_project: 0.91,
+          candidate_routine: 0.65,
+          candidate_pivot: 0.40,
+          candidate_longterm: 0.55,
+          candidate_definition: 0.45,
+        },
+      },
+    });
+
+    engine.pointerDown({ x: 100, y: 100, t: 0 });
+    engine.pointerUp(1000);
+    engine.tick(91000);
+
+    expect(engine.activeHypothesis).not.toBeNull();
+    expect(engine.activeHypothesis!.keywords).toEqual(['Svelte 5', 'Zero-UI']);
+    expect(engine.activeCandidateScores?.candidate_routine).toBe(0.65);
+  });
 });

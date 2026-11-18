@@ -1,15 +1,44 @@
 <script lang="ts">
-  import type { InferRequestBody, InferResponseBody } from '@itnote/shared';
+  import {
+    DEFAULT_REUSE_THRESHOLD,
+    type CandidateHypothesisPool,
+    type CandidateKey,
+    type InferRequestBody,
+    type InferResponseBody,
+  } from '@itnote/shared';
   import { requestInference } from '../api/inferClient';
 
+  const CANDIDATE_LABELS: Record<CandidateKey, string> = {
+    candidate_project: '프로젝트 관점',
+    candidate_routine: '루틴·일정 관점',
+    candidate_pivot: '피벗·대안 관점',
+    candidate_longterm: '장기 맥락 관점',
+    candidate_definition: '개념·요약 관점',
+  };
+
+  interface RankedCandidateItem {
+    key: CandidateKey;
+    label: string;
+    sentence: string;
+    score: number;
+  }
+
   let rawInput = $state('~~초코라떼~~ 얼그레이 밀크티, ~~4000원~~ 4500원, 굿커피');
+  let lastSubmittedInput = $state('');
   let isLoading = $state(false);
   let errorMsg = $state<string | null>(null);
   let copyFeedback = $state<string | null>(null);
 
-  // 멀티턴 연속 맥락 상태
+  // 기각 시 차순위 재사용 임계치 (개발 테스트 중 실시간 튜닝 가능)
+  let reuseThreshold = $state<number>(DEFAULT_REUSE_THRESHOLD);
+  let reuseActionLog = $state<string | null>(null);
+
+  // 멀티턴 연속 맥락 및 5-Way 후보 풀 상태
   let previousContext = $state<string | null>(null);
   let activeHypothesis = $state<string | null>(null);
+  let activeCandidatePool = $state<CandidateHypothesisPool | null>(null);
+  let activeCandidateScores = $state<Record<CandidateKey, number> | null>(null);
+  let activeSelectedKey = $state<CandidateKey | null>(null);
   let rejectedHypotheses = $state<string[]>([]);
   let history = $state<Array<{ input: string; response: InferResponseBody; timestamp: string }>>([]);
 
@@ -25,6 +54,22 @@
     { label: '다중 키워드 나열', text: 'Docker, Kubernetes, Helm' },
     { label: '맥락 보충 피드백', text: '클라우드 비용 절감' },
   ];
+
+  function getSortedCandidates(
+    pool?: CandidateHypothesisPool,
+    scores?: Record<CandidateKey, number>
+  ): RankedCandidateItem[] {
+    if (!pool) return [];
+    const keys = Object.keys(pool) as CandidateKey[];
+    return keys
+      .map((key) => ({
+        key,
+        label: CANDIDATE_LABELS[key] ?? key,
+        sentence: pool[key],
+        score: scores?.[key] ?? 0,
+      }))
+      .sort((a, b) => b.score - a.score);
+  }
 
   function applyPreset(text: string) {
     rawInput = text;
@@ -42,8 +87,8 @@
     }
   }
 
-  async function handleSend() {
-    if (!rawInput.trim() || isLoading) return;
+  async function runInferenceWithText(inputText: string, clearInputAfter = true) {
+    if (!inputText.trim() || isLoading) return;
 
     isLoading = true;
     errorMsg = null;
@@ -54,7 +99,7 @@
       .filter(Boolean);
 
     const payload: InferRequestBody = {
-      rawTextInput: rawInput.trim(),
+      rawTextInput: inputText.trim(),
       previousEvaporatedContext: previousContext,
       activeHypothesisSentence: activeHypothesis,
       rejectedHypotheses: [...rejectedHypotheses],
@@ -71,19 +116,25 @@
         return;
       }
 
+      lastSubmittedInput = inputText.trim();
       history = [
         {
-          input: rawInput.trim(),
+          input: inputText.trim(),
           response: res,
           timestamp: new Date().toLocaleTimeString('ko-KR'),
         },
         ...history,
       ];
 
-      // 다음 턴을 위한 맥락 갱신
+      // 다음 턴을 위한 맥락 및 5-Way 후보 풀 갱신
       previousContext = res.sentence;
       activeHypothesis = res.sentence;
-      rawInput = '';
+      activeCandidatePool = res.candidatePool ?? null;
+      activeCandidateScores = res.rerankerResult?.candidateScores ?? null;
+      activeSelectedKey = res.rerankerResult?.selectedKey ?? null;
+      if (clearInputAfter) {
+        rawInput = '';
+      }
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : String(err);
     } finally {
@@ -91,17 +142,51 @@
     }
   }
 
-  function handleRejectCurrent() {
-    if (activeHypothesis) {
-      rejectedHypotheses = [...rejectedHypotheses, activeHypothesis];
-      activeHypothesis = null;
+  async function handleSend() {
+    reuseActionLog = null;
+    await runInferenceWithText(rawInput, true);
+  }
+
+  async function handleRejectCurrent() {
+    if (!activeHypothesis) return;
+
+    const nextRejected = [...rejectedHypotheses, activeHypothesis];
+    rejectedHypotheses = nextRejected;
+
+    const remaining = getSortedCandidates(activeCandidatePool ?? undefined, activeCandidateScores ?? undefined).filter(
+      (item) => !nextRejected.includes(item.sentence)
+    );
+    const runnerUp = remaining[0];
+
+    if (runnerUp && runnerUp.score >= reuseThreshold) {
+      activeHypothesis = runnerUp.sentence;
+      activeSelectedKey = runnerUp.key;
+      previousContext = runnerUp.sentence;
+      reuseActionLog = `[0ms 차순위 재사용 발동] "${runnerUp.label}" 점수 ${(runnerUp.score * 100).toFixed(0)}% >= 임계치 ${(reuseThreshold * 100).toFixed(0)}% (서버 재호출 없음)`;
+      return;
+    }
+
+    const bestRemainingPct = runnerUp ? `${(runnerUp.score * 100).toFixed(0)}%` : '없음';
+    reuseActionLog = `[임계치 미달 -> 5-Way 신규 재생성] 최고 잔여 점수(${bestRemainingPct}) < 임계치 ${(reuseThreshold * 100).toFixed(0)}%`;
+    activeHypothesis = null;
+    activeCandidatePool = null;
+    activeCandidateScores = null;
+    activeSelectedKey = null;
+
+    if (lastSubmittedInput) {
+      await runInferenceWithText(lastSubmittedInput, false);
     }
   }
 
   function handleResetContext() {
     previousContext = null;
     activeHypothesis = null;
+    activeCandidatePool = null;
+    activeCandidateScores = null;
+    activeSelectedKey = null;
     rejectedHypotheses = [];
+    reuseActionLog = null;
+    lastSubmittedInput = '';
     history = [];
     rawInput = 'MongoDB -> PostgreSQL';
   }
@@ -170,6 +255,22 @@
         </button>
       </div>
 
+      <!-- X 기각 시 차순위 재사용 임계치 튜닝 슬라이더 -->
+      <div class="threshold-bar">
+        <label class="threshold-label" for="reuse-threshold-slider">
+          기각(X) 시 차순위 재사용 임계치 (<code>reuseThreshold</code>):
+        </label>
+        <input
+          id="reuse-threshold-slider"
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          bind:value={reuseThreshold}
+        />
+        <span class="threshold-val">{reuseThreshold.toFixed(2)} ({(reuseThreshold * 100).toFixed(0)}%)</span>
+      </div>
+
       <!-- 현재 누적된 맥락 상태 -->
       <div class="context-bar">
         <div class="context-item">
@@ -180,7 +281,10 @@
           <div class="context-item">
             <span class="k">현재 활성 가설:</span>
             <span class="v highlight select-text">{activeHypothesis}</span>
-            <button class="btn-reject" onclick={handleRejectCurrent}>X 마킹 (기각 제약 추가)</button>
+            {#if activeSelectedKey}
+              <span class="active-axis-tag">{CANDIDATE_LABELS[activeSelectedKey]}</span>
+            {/if}
+            <button class="btn-reject" onclick={handleRejectCurrent}>X 마킹 (임계치 기반 재사용/재생성)</button>
           </div>
         {/if}
         {#if rejectedHypotheses.length > 0}
@@ -190,6 +294,10 @@
           </div>
         {/if}
       </div>
+
+      {#if reuseActionLog}
+        <div class="reuse-log-banner">{reuseActionLog}</div>
+      {/if}
 
       {#if copyFeedback}
         <div class="toast-feedback">{copyFeedback}</div>
@@ -218,9 +326,54 @@
         </div>
 
         <div class="sentence-box">
-          <span class="sentence-label">System 2 생성 문장:</span>
+          <div class="sentence-top-row">
+            <span class="sentence-label">System 1 확정 1문장 ({item.response.rerankerResult?.scoringEngine ?? 'heuristic'})</span>
+            <span class="ocr-badge">OCR: {item.response.ocrSource ?? 'raw-text'}</span>
+          </div>
           <p class="sentence-text select-text">"{item.response.sentence}"</p>
         </div>
+
+        {#if item.response.candidatePool}
+          <div class="candidates-panel">
+            <div class="candidates-header">
+              <span>System 2 생성 5-Way 후보 &amp; System 1 독립 확률/점수</span>
+              <span class="threshold-ref">기준 임계치: {(reuseThreshold * 100).toFixed(0)}% ({reuseThreshold.toFixed(2)})</span>
+            </div>
+            <div class="candidate-list">
+              {#each getSortedCandidates(item.response.candidatePool, item.response.rerankerResult?.candidateScores) as cand}
+                {@const isSelected = cand.key === item.response.rerankerResult?.selectedKey}
+                {@const isRejected = rejectedHypotheses.includes(cand.sentence)}
+                {@const isReusable = !isSelected && !isRejected && cand.score >= reuseThreshold}
+                <div class="candidate-row" class:is-winner={isSelected} class:is-rejected={isRejected}>
+                  <div class="candidate-meta">
+                    <span class="cand-axis">{cand.label}</span>
+                    <div class="cand-badges">
+                      {#if isSelected}
+                        <span class="cand-badge winner">1위 채택</span>
+                      {:else if isRejected}
+                        <span class="cand-badge rejected">기각됨 (X)</span>
+                      {:else if isReusable}
+                        <span class="cand-badge reusable">재사용 가능 (&gt;= 임계치)</span>
+                      {:else}
+                        <span class="cand-badge low">임계치 미달</span>
+                      {/if}
+                      <span class="cand-score-num">{(cand.score * 100).toFixed(0)}% ({cand.score.toFixed(2)})</span>
+                    </div>
+                  </div>
+                  <div class="score-bar-track">
+                    <div
+                      class="score-bar-fill"
+                      class:fill-winner={isSelected}
+                      class:fill-reusable={isReusable}
+                      style="width: {Math.round(cand.score * 100)}%"
+                    ></div>
+                  </div>
+                  <p class="cand-sentence select-text">{cand.sentence}</p>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
 
         <div class="jev-grid">
           <div class="jev-item">
@@ -694,5 +847,202 @@
 
   .jv.active-bool {
     color: #16a34a;
+  }
+
+  .threshold-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    font-size: 13px;
+  }
+
+  .threshold-label {
+    font-weight: 600;
+    color: #0369a1;
+    white-space: nowrap;
+  }
+
+  .threshold-bar input[type="range"] {
+    flex: 1;
+    max-width: 260px;
+    cursor: pointer;
+  }
+
+  .threshold-val {
+    font-weight: 700;
+    color: #0c4a6e;
+    min-width: 96px;
+  }
+
+  .active-axis-tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .reuse-log-banner {
+    margin-top: 10px;
+    padding: 9px 14px;
+    background: #fefce8;
+    border: 1px solid #fde047;
+    color: #854d0e;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .sentence-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  .ocr-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #e2e8f0;
+    color: #334155;
+  }
+
+  .candidates-panel {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+
+  .candidates-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #334155;
+    margin-bottom: 10px;
+  }
+
+  .threshold-ref {
+    font-weight: 600;
+    color: #0369a1;
+  }
+
+  .candidate-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .candidate-row {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 8px 12px;
+  }
+
+  .candidate-row.is-winner {
+    border-color: #3b82f6;
+    background: #eff6ff;
+  }
+
+  .candidate-row.is-rejected {
+    opacity: 0.65;
+    background: #fef2f2;
+    border-color: #fecaca;
+  }
+
+  .candidate-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+    font-size: 12px;
+  }
+
+  .cand-axis {
+    font-weight: 700;
+    color: #1e293b;
+  }
+
+  .cand-badges {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .cand-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+  }
+
+  .cand-badge.winner {
+    background: #2563eb;
+    color: #fff;
+  }
+
+  .cand-badge.rejected {
+    background: #ef4444;
+    color: #fff;
+  }
+
+  .cand-badge.reusable {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .cand-badge.low {
+    background: #f1f5f9;
+    color: #64748b;
+  }
+
+  .cand-score-num {
+    font-weight: 700;
+    color: #0f172a;
+    min-width: 76px;
+    text-align: right;
+  }
+
+  .score-bar-track {
+    width: 100%;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 6px;
+  }
+
+  .score-bar-fill {
+    height: 100%;
+    background: #94a3b8;
+    border-radius: 999px;
+    transition: width 0.2s ease;
+  }
+
+  .score-bar-fill.fill-winner {
+    background: #2563eb;
+  }
+
+  .score-bar-fill.fill-reusable {
+    background: #16a34a;
+  }
+
+  .cand-sentence {
+    margin: 0;
+    font-size: 13px;
+    color: #334155;
+    line-height: 1.4;
   }
 </style>

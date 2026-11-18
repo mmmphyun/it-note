@@ -1,4 +1,15 @@
-import type { Stroke, StrokePoint, AiHypothesis, ConfirmedNote, InferRequestBody, InferResponseBody } from '@itnote/shared';
+import {
+  DEFAULT_REUSE_THRESHOLD,
+  type Stroke,
+  type StrokePoint,
+  type AiHypothesis,
+  type ConfirmedNote,
+  type InferRequestBody,
+  type InferResponseBody,
+  type CandidateHypothesisPool,
+  type CandidateKey,
+  type ExtractedKeywords,
+} from '@itnote/shared';
 import { calculateDecayState, type DecayState, type SpeedMode } from './decayTimer';
 import { extractCroppedStrokes, type CroppedImageResult } from './cropExtractor';
 import { recognizeOxGesture, type Point } from './gestureRecognizer';
@@ -173,6 +184,11 @@ export class CanvasLifecycleEngine {
   pendingNextHypothesisTime: number | null = null;
   pendingNextHypothesisBbox: [number, number, number, number] | null = null;
 
+  // 5-Way 후보 풀 및 동적 기각 재사용 임계치 상태
+  reuseThreshold: number = DEFAULT_REUSE_THRESHOLD;
+  activeCandidatePool: CandidateHypothesisPool | null = null;
+  activeCandidateScores: Record<CandidateKey, number> | null = null;
+
   private mockSentenceIndex = 0;
   private mockSentences = [
     '방금 적어주신 생각을 바탕으로 다음 방향을 정리해 볼까요?',
@@ -186,6 +202,51 @@ export class CanvasLifecycleEngine {
     this.callbacks = callbacks;
     this.speedMode = typeof speedMode === 'boolean' ? (speedMode ? 'fast' : 'normal') : speedMode;
     this.speculativePipeline = callbacks.speculativePipeline ?? new SpeculativePipeline();
+
+    if (typeof window !== 'undefined' && window.location?.search) {
+      const params = new URLSearchParams(window.location.search);
+      const rawThreshold = params.get('threshold');
+      if (rawThreshold !== null) {
+        const parsed = Number(rawThreshold);
+        if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+          this.setReuseThreshold(parsed);
+        }
+      }
+    }
+  }
+
+  setReuseThreshold(threshold: number): void {
+    this.reuseThreshold = Math.max(0, Math.min(1, threshold));
+  }
+
+  private extractKeywordsList(kw?: ExtractedKeywords): string[] {
+    if (!kw) return [];
+    const merged = [
+      ...(kw.active || []),
+      ...(kw.chosen || []),
+      ...(kw.emphasized || []),
+    ].filter(Boolean);
+    return merged.length > 0 ? Array.from(new Set(merged)) : [];
+  }
+
+  private pickBestRemainingCandidate(): { key: CandidateKey; sentence: string; score: number } | null {
+    if (!this.activeCandidatePool || !this.activeCandidateScores) return null;
+    const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+    const rejectedSet = new Set(this.rejectedHypotheses.map(normalize));
+    const keys = Object.keys(this.activeCandidatePool) as CandidateKey[];
+    let best: { key: CandidateKey; sentence: string; score: number } | null = null;
+
+    for (const key of keys) {
+      const sentence = this.activeCandidatePool[key];
+      if (!sentence) continue;
+      if (rejectedSet.has(normalize(sentence))) continue;
+
+      const score = this.activeCandidateScores[key] ?? 0;
+      if (!best || score > best.score) {
+        best = { key, sentence, score };
+      }
+    }
+    return best;
   }
 
   pointerDown(point: StrokePoint): void {
@@ -284,7 +345,14 @@ export class CanvasLifecycleEngine {
       const bbox = this.pendingNextHypothesisBbox ?? [180, 140, 420, 200];
       this.pendingNextHypothesisBbox = null;
 
-      if (this.callbacks.onInferRequested) {
+      // 잔여 후보 중 최고 점수가 reuseThreshold 이상이면 API 재호출 없이 0ms 즉시 차순위 대필
+      const runnerUp = this.pickBestRemainingCandidate();
+      if (runnerUp && runnerUp.score >= this.reuseThreshold) {
+        const preservedKw = this.activeHypothesis?.keywords ?? [];
+        this.spawnHypothesis(bbox, now, runnerUp.sentence, preservedKw);
+      } else if (this.callbacks.onInferRequested) {
+        this.activeCandidatePool = null;
+        this.activeCandidateScores = null;
         this.isInferring = true;
         const req: InferRequestBody = {
           croppedImageBase64: 'data:image/png;base64,rejection-refinement',
@@ -299,27 +367,28 @@ export class CanvasLifecycleEngine {
         this.callbacks.onInferRequested(req)
           .then((res) => {
             this.isInferring = false;
-            if (res && !this.activeHypothesis) {
+            const canSpawn = !this.activeHypothesis || this.activeHypothesis.isRejected;
+            if (res && canSpawn) {
+              this.activeCandidatePool = res.candidatePool ?? null;
+              this.activeCandidateScores = res.rerankerResult?.candidateScores ?? null;
               const adjustedBbox = calculateVisibleHypothesisBbox(res.jevDecision.marginBox.coordinates, this.currentViewport, 520, 105);
               const dynamicWidth = adjustedBbox[2];
               const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
-              const allKw = [
-                ...(res.extractedKeywords?.active || []),
-                ...(res.extractedKeywords?.chosen || []),
-                ...(res.extractedKeywords?.emphasized || []),
-              ].filter(Boolean);
-              this.spawnHypothesis(adjustedBbox, performance.now(), formatted, allKw.length > 0 ? Array.from(new Set(allKw)) : []);
-            } else if (!this.activeHypothesis) {
+              const allKw = this.extractKeywordsList(res.extractedKeywords);
+              this.spawnHypothesis(adjustedBbox, performance.now(), formatted, allKw);
+            } else if (canSpawn) {
               this.spawnHypothesis(bbox, performance.now());
             }
           })
           .catch(() => {
             this.isInferring = false;
-            if (!this.activeHypothesis) {
+            if (!this.activeHypothesis || this.activeHypothesis.isRejected) {
               this.spawnHypothesis(bbox, performance.now());
             }
           });
       } else {
+        this.activeCandidatePool = null;
+        this.activeCandidateScores = null;
         this.spawnHypothesis(bbox, now);
       }
     }
@@ -363,17 +432,14 @@ export class CanvasLifecycleEngine {
             };
             this.callbacks.onInferRequested(req).then((res) => {
               if (res && this.activeHypothesis && !this.activeHypothesis.isConfirmed && !this.activeHypothesis.isRejected) {
+                this.activeCandidatePool = res.candidatePool ?? null;
+                this.activeCandidateScores = res.rerankerResult?.candidateScores ?? null;
                 const adjustedBbox = calculateVisibleHypothesisBbox(res.jevDecision.marginBox.coordinates, this.currentViewport, 520, 105);
                 const dynamicWidth = adjustedBbox[2];
                 const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
                 this.activeHypothesis.sentence = formatted;
                 this.activeHypothesis.bbox = adjustedBbox;
-                const allKw = [
-                  ...(res.extractedKeywords?.active || []),
-                  ...(res.extractedKeywords?.chosen || []),
-                  ...(res.extractedKeywords?.emphasized || []),
-                ].filter(Boolean);
-                this.activeHypothesis.keywords = allKw.length > 0 ? Array.from(new Set(allKw)) : [];
+                this.activeHypothesis.keywords = this.extractKeywordsList(res.extractedKeywords);
                 this.lastEvaporatedContext = formatted;
                 this.callbacks.onFeedbackRefined?.(formatted);
               }
@@ -402,9 +468,11 @@ export class CanvasLifecycleEngine {
       if (cropped && !this.activeHypothesis && !this.isInferring) {
         this.callbacks.onCropExtracted?.(cropped);
 
-        // 1. 선제적 투기 실행 캐시 확인 (0ms 즉각 대필)
+        // 1. 선제적 투기 실행 캐시 확인 (0ms 즉각 대필 및 키워드·후보 풀 복원)
         const prefetched = this.speculativePipeline.consumePrefetchedHypothesis();
         if (prefetched) {
+          this.activeCandidatePool = prefetched.candidatePool ?? null;
+          this.activeCandidateScores = prefetched.rerankerResult?.candidateScores ?? null;
           const adjustedBbox = calculateVisibleHypothesisBbox(
             [cropped.bbox[0], cropped.bbox[1], cropped.bbox[0] + cropped.bbox[2], cropped.bbox[1] + cropped.bbox[3]],
             this.currentViewport,
@@ -413,7 +481,8 @@ export class CanvasLifecycleEngine {
           );
           const dynamicWidth = adjustedBbox[2];
           const formatted = formatHandwrittenSentence(prefetched.hypothesisSentence, dynamicWidth);
-          this.spawnHypothesis(adjustedBbox, performance.now(), formatted);
+          const prefetchedKw = this.extractKeywordsList(prefetched.extractedKeywords);
+          this.spawnHypothesis(adjustedBbox, performance.now(), formatted, prefetchedKw);
         } else if (this.callbacks.onInferRequested) {
           this.isInferring = true;
           const req: InferRequestBody = {
@@ -430,6 +499,8 @@ export class CanvasLifecycleEngine {
             .then((res) => {
               this.isInferring = false;
               if (res && !this.activeHypothesis) {
+                this.activeCandidatePool = res.candidatePool ?? null;
+                this.activeCandidateScores = res.rerankerResult?.candidateScores ?? null;
                 const adjustedBbox = calculateVisibleHypothesisBbox(
                   res.jevDecision.marginBox.coordinates,
                   this.currentViewport,
@@ -438,16 +509,12 @@ export class CanvasLifecycleEngine {
                 );
                 const dynamicWidth = adjustedBbox[2];
                 const formatted = formatHandwrittenSentence(res.sentence, dynamicWidth);
-                const allKw = [
-                  ...(res.extractedKeywords?.active || []),
-                  ...(res.extractedKeywords?.chosen || []),
-                  ...(res.extractedKeywords?.emphasized || []),
-                ].filter(Boolean);
+                const allKw = this.extractKeywordsList(res.extractedKeywords);
                 this.spawnHypothesis(
                   adjustedBbox,
                   performance.now(),
                   formatted,
-                  allKw.length > 0 ? Array.from(new Set(allKw)) : []
+                  allKw
                 );
               } else if (!this.activeHypothesis) {
                 // 백엔드 응답 실패 시 목업 가설로 안전 스폰

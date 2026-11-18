@@ -106,7 +106,10 @@ export class SpeculativePipeline {
           candidateKey: result.rerankerResult?.selectedKey,
           confidenceScore: result.rerankerResult?.confidenceScore ?? 0.9,
           fetchedAt: Date.now(),
-          isStale: false
+          isStale: false,
+          candidatePool: result.candidatePool,
+          rerankerResult: result.rerankerResult,
+          extractedKeywords: result.extractedKeywords,
         };
       }
     } catch (err) {

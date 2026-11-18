@@ -1,9 +1,39 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getStroke } from 'perfect-freehand';
-  import type { Stroke, InferRequestBody, InferResponseBody } from '@itnote/shared';
+  import type {
+    Stroke,
+    InferRequestBody,
+    InferResponseBody,
+    CandidateHypothesisPool,
+    CandidateKey,
+  } from '@itnote/shared';
   import { extractCroppedStrokes, type CroppedImageResult } from '../canvas/cropExtractor';
   import { requestInference } from '../api/inferClient';
+
+  const CANDIDATE_LABELS: Record<CandidateKey, string> = {
+    candidate_project: '프로젝트 관점',
+    candidate_routine: '루틴·일정 관점',
+    candidate_pivot: '피벗·대안 관점',
+    candidate_longterm: '장기 맥락 관점',
+    candidate_definition: '개념·요약 관점',
+  };
+
+  function getSortedCandidates(
+    pool?: CandidateHypothesisPool,
+    scores?: Record<CandidateKey, number>
+  ): Array<{ key: CandidateKey; label: string; sentence: string; score: number }> {
+    if (!pool) return [];
+    const keys = Object.keys(pool) as CandidateKey[];
+    return keys
+      .map((key) => ({
+        key,
+        label: CANDIDATE_LABELS[key] ?? key,
+        sentence: pool[key],
+        score: scores?.[key] ?? 0,
+      }))
+      .sort((a, b) => b.score - a.score);
+  }
 
   // 캔버스 상태
   let canvasEl = $state<HTMLCanvasElement | null>(null);
@@ -410,9 +440,38 @@
       {:else if inferResponse}
         <div class="result-display">
           <div class="sentence-box">
-            <span class="s-label">생성된 질문:</span>
+            <div class="sentence-header-row">
+              <span class="s-label">System 1 확정 질문 ({inferResponse.rerankerResult?.scoringEngine ?? 'heuristic'}):</span>
+              <span class="ocr-source-pill">
+                OCR: {inferResponse.ocrSource === 'ko-hand-ocr' ? 'ko-hand-ocr Python 사이드카' : inferResponse.ocrSource === 'raw-text' ? '텍스트 직접 입력' : 'Gemini 멀티모달 폴백'}
+              </span>
+            </div>
             <p class="s-text select-text">"{inferResponse.sentence}"</p>
+            {#if inferResponse.ocrRawText}
+              <p class="ocr-raw-line select-text">OCR 추출 원문: <strong>{inferResponse.ocrRawText}</strong></p>
+            {/if}
           </div>
+
+          {#if inferResponse.candidatePool}
+            <div class="candidates-box">
+              <div class="candidates-title">5-Way 후보 가설 &amp; System 1 확률/점수 분포</div>
+              <div class="candidates-rows">
+                {#each getSortedCandidates(inferResponse.candidatePool, inferResponse.rerankerResult?.candidateScores) as cand}
+                  {@const isWinner = cand.key === inferResponse.rerankerResult?.selectedKey}
+                  <div class="cand-row" class:winner-row={isWinner}>
+                    <div class="cand-top">
+                      <span class="cand-name">{cand.label} {isWinner ? '(1위 채택)' : ''}</span>
+                      <span class="cand-prob">{(cand.score * 100).toFixed(0)}% ({cand.score.toFixed(2)})</span>
+                    </div>
+                    <div class="cand-track">
+                      <div class="cand-fill" class:winner-fill={isWinner} style="width: {Math.round(cand.score * 100)}%"></div>
+                    </div>
+                    <p class="cand-msg select-text">{cand.sentence}</p>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
 
           <div class="res-grid">
             <div class="res-item">
@@ -984,5 +1043,102 @@
 
   .text-red {
     color: #dc2626;
+  }
+
+  .sentence-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  .ocr-source-pill {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #e0f2fe;
+    color: #0369a1;
+  }
+
+  .ocr-raw-line {
+    margin: 6px 0 0 0;
+    font-size: 12px;
+    color: #475569;
+  }
+
+  .candidates-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+
+  .candidates-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #334155;
+    margin-bottom: 10px;
+  }
+
+  .candidates-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .cand-row {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 8px 12px;
+  }
+
+  .cand-row.winner-row {
+    border-color: #0284c7;
+    background: #f0f9ff;
+  }
+
+  .cand-top {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+
+  .cand-name {
+    font-weight: 700;
+    color: #1e293b;
+  }
+
+  .cand-prob {
+    font-weight: 700;
+    color: #0369a1;
+  }
+
+  .cand-track {
+    width: 100%;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 5px;
+  }
+
+  .cand-fill {
+    height: 100%;
+    background: #94a3b8;
+    border-radius: 999px;
+  }
+
+  .cand-fill.winner-fill {
+    background: #0284c7;
+  }
+
+  .cand-msg {
+    margin: 0;
+    font-size: 13px;
+    color: #334155;
   }
 </style>
