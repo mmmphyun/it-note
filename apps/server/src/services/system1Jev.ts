@@ -13,12 +13,29 @@ import type {
 } from '@itnote/shared';
 import type { GoogleGenAI } from '@google/genai';
 import { getGeminiClient } from './geminiClient';
+import { recognizeHandwritingWithSidecar } from './ocrClient';
 
 // ponytail: official @google/genai SDK with structured output
 
 export interface System1Output {
   decision: JevDecision;
   keywords: ExtractedKeywords;
+  ocrSource?: 'ko-hand-ocr' | 'gemini-multimodal' | 'raw-text';
+  ocrRawText?: string;
+}
+
+/**
+ * 여백 가설 문장 바운딩 박스를 필기 bbox 기준 기하학 수식으로 결정론적 계산
+ */
+export function calculateDeterministicMarginBox(
+  bbox?: [number, number, number, number]
+): [number, number, number, number] {
+  const [, minY, maxX] = bbox ?? [100, 100, 300, 200];
+  const marginMinX = maxX + 36;
+  const marginMinY = minY;
+  const marginMaxX = Math.min(2350, marginMinX + 440);
+  const marginMaxY = marginMinY + 105;
+  return [marginMinX, marginMinY, marginMaxX, marginMaxY];
 }
 
 /**
@@ -26,8 +43,31 @@ export interface System1Output {
  * 자유 텍스트 대신 정형화된 의사결정 프리미티브(Noul, Choice, Box)만 산출
  */
 export async function runSystem1Jev(request: InferRequestBody): Promise<System1Output> {
+  let enrichedRequest = request;
+  let ocrSource: 'ko-hand-ocr' | 'gemini-multimodal' | 'raw-text' = request.rawTextInput
+    ? 'raw-text'
+    : 'gemini-multimodal';
+  let ocrRawText: string | undefined;
+
+  if (!request.rawTextInput && request.croppedImageBase64) {
+    const sidecarResult = await recognizeHandwritingWithSidecar(request.croppedImageBase64);
+    if (sidecarResult) {
+      enrichedRequest = {
+        ...request,
+        rawTextInput: sidecarResult.text,
+      };
+      ocrSource = 'ko-hand-ocr';
+      ocrRawText = sidecarResult.text;
+    }
+  }
+
   if (process.env.NODE_ENV === 'test') {
-    return runHeuristicSystem1(request);
+    const heuristic = runHeuristicSystem1(enrichedRequest);
+    return {
+      ...heuristic,
+      ocrSource,
+      ocrRawText,
+    };
   }
 
   const jevApiKey = process.env.JEV_API_KEY;
@@ -36,7 +76,19 @@ export async function runSystem1Jev(request: InferRequestBody): Promise<System1O
 
   if (jevApiKey && jevEndpoint) {
     try {
-      return await callJevEndpoint(request, jevEndpoint, jevApiKey);
+      const jevRes = await callJevEndpoint(enrichedRequest, jevEndpoint, jevApiKey);
+      return {
+        ...jevRes,
+        decision: {
+          ...jevRes.decision,
+          marginBox: {
+            type: 'box',
+            coordinates: calculateDeterministicMarginBox(enrichedRequest.strokeMetadata?.bbox),
+          },
+        },
+        ocrSource,
+        ocrRawText,
+      };
     } catch {
       // Jev 실패 시 Gemini 또는 Heuristic Fallback
     }
@@ -44,14 +96,31 @@ export async function runSystem1Jev(request: InferRequestBody): Promise<System1O
 
   if (ai) {
     try {
-      return await callGeminiStructuredJev(request, ai);
+      const gemRes = await callGeminiStructuredJev(enrichedRequest, ai);
+      return {
+        ...gemRes,
+        decision: {
+          ...gemRes.decision,
+          marginBox: {
+            type: 'box',
+            coordinates: calculateDeterministicMarginBox(enrichedRequest.strokeMetadata?.bbox),
+          },
+        },
+        ocrSource,
+        ocrRawText,
+      };
     } catch (err) {
       console.error('[System 1 Jev Error]', err instanceof Error ? err.message : err);
       // Gemini 실패 시 Heuristic Fallback
     }
   }
 
-  return runHeuristicSystem1(request);
+  const heuristic = runHeuristicSystem1(enrichedRequest);
+  return {
+    ...heuristic,
+    ocrSource,
+    ocrRawText,
+  };
 }
 
 /**
@@ -136,7 +205,9 @@ Action Tasks (Determine the user's primary human action):
 - CAUSE_DIAGNOSE: Diagnosing root causes or troubleshooting hypotheses (e.g. OOM: 누수 의심).
 - RECORD_CONFIRM: Plain recording of a finalized fact or completed expense.`;
 
-  const contents: any[] = [{ text: prompt }];
+  const contents: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
+    { text: prompt },
+  ];
 
   if (request.croppedImageBase64 && request.croppedImageBase64.startsWith('data:image/')) {
     const mimeMatch = request.croppedImageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
@@ -297,7 +368,10 @@ Action Tasks (Determine the user's primary human action):
  * 오프라인, 테스트, 키 미설정 시 결정론적 판별 보장
  */
 export function runHeuristicSystem1(request: InferRequestBody): System1Output {
-  const [, minY, maxX] = request.strokeMetadata?.bbox ?? [100, 100, 300, 200];
+  // 4. 여백 바운딩박스 기하학 결정론적 계산 (필기 우측)
+  const [marginMinX, marginMinY, marginMaxX, marginMaxY] = calculateDeterministicMarginBox(
+    request.strokeMetadata?.bbox
+  );
   const activeHypothesis = request.activeHypothesisSentence;
   const previousEvaporated = request.previousEvaporatedContext;
 
@@ -380,11 +454,7 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
     }
   }
 
-  // 4. 여백 바운딩박스 계산 (필기 우측 또는 하단)
-  const marginMinX = maxX + 36;
-  const marginMinY = minY;
-  const marginMaxX = Math.min(2350, marginMinX + 440);
-  const marginMaxY = marginMinY + 105;
+  // 4. 여백 바운딩박스는 상단에서 기하학 결정론적 수식으로 계산 완료
 
   let domainRoute: DomainRoute = 'GENERAL_IDEA';
   const fullTextLower = `${request.rawTextInput ?? ''} ${activeKeywords.join(' ')}`.toLowerCase();
@@ -480,7 +550,7 @@ export function runHeuristicSystem1(request: InferRequestBody): System1Output {
 }
 
 /**
- * 차세대 Jev Discriminator: 5개 직교 후보 문장 중 최적의 1개를 Choice로 확정
+ * 차세대 Jev Discriminator: 5개 직교 후보 문장별 독립 Rubric Score([0.00, 1.00]) 산출 후 최적 1개 확정
  */
 export function runJevReranker(input: JevRerankerInput): JevRerankerResult {
   const { candidates, userContext } = input;
@@ -488,49 +558,42 @@ export function runJevReranker(input: JevRerankerInput): JevRerankerResult {
   const hasLinkedContext = (userContext.linkedContexts?.length ?? 0) > 0;
   const hasRoutine = Boolean(userContext.currentRoutine);
 
-  // 기본 가중치 초기화
+  // 후보별 독립 점수 초기화 ([0.00, 1.00] 스케일)
   const rawScores: Record<keyof CandidateHypothesisPool, number> = {
-    candidate_project: 0.5,
-    candidate_routine: 0.4,
-    candidate_pivot: 0.2,
-    candidate_longterm: 0.3,
-    candidate_definition: 0.35,
+    candidate_project: 0.68,
+    candidate_routine: 0.62,
+    candidate_pivot: 0.45,
+    candidate_longterm: 0.52,
+    candidate_definition: 0.58,
   };
 
-  // 맥락 신호에 따른 가중치 조정
+  // 맥락 신호에 따른 독립 가중치 조정
   if (hasStrikethrough) {
-    // 취소선이나 이전 기각이 존재하면 피벗 관점 대폭 상향
-    rawScores.candidate_pivot += 0.6;
+    rawScores.candidate_pivot = 0.89;
   }
 
   if (hasLinkedContext) {
-    // 과거 연관 노트가 발견되었으면 장기 맥락 연결 관점 상향
     const topSimilarity = userContext.linkedContexts![0].similarity;
-    rawScores.candidate_longterm += topSimilarity * 0.7;
+    rawScores.candidate_longterm = Math.min(0.94, 0.55 + topSimilarity * 0.38);
   }
 
   if (hasRoutine) {
-    // 현재 시간대 루틴이 일치하면 루틴 관점 상향
-    rawScores.candidate_routine += 0.3;
+    rawScores.candidate_routine = 0.84;
   }
 
-  // 소프트맥스(Softmax) 정규화
   const keys = Object.keys(rawScores) as Array<keyof CandidateHypothesisPool>;
-  const expScores = keys.map((k) => Math.exp(rawScores[k]));
-  const sumExp = expScores.reduce((acc, v) => acc + v, 0);
-
   const candidateScores = {} as Record<keyof CandidateHypothesisPool, number>;
   let bestKey: keyof CandidateHypothesisPool = 'candidate_project';
   let bestScore = -1;
 
-  keys.forEach((k, idx) => {
-    const norm = Math.round((expScores[idx] / sumExp) * 100) / 100;
-    candidateScores[k] = norm;
-    if (norm > bestScore) {
-      bestScore = norm;
+  for (const k of keys) {
+    const clamped = Math.max(0, Math.min(1, Math.round(rawScores[k] * 100) / 100));
+    candidateScores[k] = clamped;
+    if (clamped > bestScore) {
+      bestScore = clamped;
       bestKey = k;
     }
-  });
+  }
 
   const reasonMap: Record<keyof CandidateHypothesisPool, string> = {
     candidate_project: '사용자의 프로필 및 개발 작업 맥락과 가장 높은 적합도를 보임',
@@ -546,5 +609,6 @@ export function runJevReranker(input: JevRerankerInput): JevRerankerResult {
     confidenceScore: bestScore,
     reasonNoul: reasonMap[bestKey],
     candidateScores,
+    scoringEngine: 'heuristic',
   };
 }

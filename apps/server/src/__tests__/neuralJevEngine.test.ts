@@ -1,15 +1,19 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { CandidateHypothesisPool, JevRerankerInput } from '@itnote/shared';
-import * as ort from 'onnxruntime-node';
 import {
-  buildBatchTensors,
+  buildDecisionQuestions,
   computeSoftmax,
   runNeuralJevReranker,
-  setNeuralSessionForTesting,
+  setDecisionEvaluatorForTesting,
   isNeuralEngineReady,
+  type DecisionsApiRequest,
 } from '../services/neuralJevEngine';
+import {
+  recognizeHandwritingWithSidecar,
+  setOcrFetcherForTesting,
+} from '../services/ocrClient';
 
-describe('Neural Jev Engine (KLUE-RoBERTa Batch Reranker)', () => {
+describe('System 1 Decision Engine (gemini-decision-1 & ko-hand-ocr)', () => {
   const dummyPool: CandidateHypothesisPool = {
     candidate_project: 'Svelte 5 룬 기반으로 가상 DOM 오버헤드를 제거합니다.',
     candidate_routine: '수요일 오후 개인 프로젝트 스프린트 일정에 집중합니다.',
@@ -27,23 +31,17 @@ describe('Neural Jev Engine (KLUE-RoBERTa Batch Reranker)', () => {
   };
 
   afterEach(() => {
-    setNeuralSessionForTesting(null);
+    setDecisionEvaluatorForTesting(null);
+    setOcrFetcherForTesting(null);
   });
 
-  it('5개 후보 문장을 [5, seqLen] 크기의 단일 배치 텐서로 변환해야 한다', () => {
-    const seqLen = 64;
-    const { inputIds, attentionMask } = buildBatchTensors(dummyPool, '사용자 맥락', seqLen);
+  it('buildDecisionQuestions는 5개 직교 후보 각각에 대한 gemini-decision-1 질문 스키마를 생성해야 한다', () => {
+    const questions = buildDecisionQuestions(dummyPool, '직무: DevSecOps');
+    const keys = Object.keys(questions);
 
-    expect(inputIds.dims).toEqual([5, seqLen]);
-    expect(attentionMask.dims).toEqual([5, seqLen]);
-    expect(inputIds.type).toBe('int64');
-    expect(attentionMask.type).toBe('int64');
-
-    // 5개 배치 각각 [CLS]=2 로 시작해야 함
-    const ids = inputIds.data as BigInt64Array;
-    for (let b = 0; b < 5; b++) {
-      expect(ids[b * seqLen]).toBe(2n);
-    }
+    expect(keys).toHaveLength(5);
+    expect(questions.candidate_project.type).toBe('noul');
+    expect(questions.candidate_pivot.instructions).toContain(dummyPool.candidate_pivot);
   });
 
   it('로짓 배열에 대해 소프트맥스 확률 분포를 정상 산출해야 한다', () => {
@@ -52,61 +50,75 @@ describe('Neural Jev Engine (KLUE-RoBERTa Batch Reranker)', () => {
 
     expect(probs.length).toBe(5);
     const sum = probs.reduce((acc, p) => acc + p, 0);
-    // 반올림 오차 감안 0.95 ~ 1.05 범위
     expect(sum).toBeGreaterThanOrEqual(0.95);
     expect(sum).toBeLessThanOrEqual(1.05);
 
-    // 가장 큰 로짓 인덱스(1번)가 최고 확률이어야 함
     const maxProbIdx = probs.indexOf(Math.max(...probs));
     expect(maxProbIdx).toBe(1);
   });
 
-  it('세션이 없는 경우 휴리스틱 Fallback으로 즉시 최적 후보를 반환해야 한다', async () => {
+  it('평가기 미설정 시 휴리스틱 Fallback으로 [0, 1] 독립 점수와 최적 후보를 반환해야 한다', async () => {
     expect(isNeuralEngineReady()).toBe(false);
 
     const result = await runNeuralJevReranker(sampleInput);
 
     expect(result).toBeDefined();
-    expect(result.selectedKey).toBeDefined();
+    expect(result.scoringEngine).toBe('heuristic');
     expect(result.winningSentence).toBe(dummyPool[result.selectedKey]);
-    expect(result.confidenceScore).toBeGreaterThan(0);
-    expect(Object.keys(result.candidateScores).length).toBe(5);
+    expect(result.confidenceScore).toBeGreaterThan(0.6);
+    for (const score of Object.values(result.candidateScores)) {
+      expect(score).toBeGreaterThanOrEqual(0);
+      expect(score).toBeLessThanOrEqual(1);
+    }
   });
 
-  it('신경망 세션 주입 시 Batch=5 1회 순전파를 실행하고 최고 로짓 후보를 Choice로 확정해야 한다', async () => {
-    // 특정 후보(candidate_pivot)가 우세한 모의 로짓 반환 세션
-    const mockRun = vi.fn().mockImplementation(async () => {
-      // 5개 후보에 대한 모델 출력 로짓
-      const mockLogits = new Float32Array([0.2, 0.4, 3.8, 0.5, 0.3]);
-      const tensor = new ort.Tensor('float32', mockLogits, [5]);
-      return { logits: tensor };
+  it('gemini-decision-1 평가기 주입 시 1회 호출로 5개 후보 독립 점수를 산출하고 최고점 후보를 확정해야 한다', async () => {
+    const mockEvaluator = vi.fn(async (req: DecisionsApiRequest) => {
+      expect(req.model).toBe('gemini-decision-1');
+      return {
+        answers: {
+          candidate_project: { type: 'noul' as const, noul: 0.72, confidence: 0.85 },
+          candidate_routine: { type: 'noul' as const, noul: 0.44, confidence: 0.8 },
+          candidate_pivot: { type: 'noul' as const, noul: 0.81, confidence: 0.92 },
+          candidate_longterm: { type: 'noul' as const, noul: 0.63, confidence: 0.81 },
+          candidate_definition: { type: 'noul' as const, noul: 0.39, confidence: 0.77 },
+        },
+      };
     });
 
-    const mockSession = {
-      run: mockRun,
-      outputNames: ['logits'],
-    } as unknown as ort.InferenceSession;
-
-    setNeuralSessionForTesting(mockSession);
+    setDecisionEvaluatorForTesting(mockEvaluator);
     expect(isNeuralEngineReady()).toBe(true);
 
-    const startTime = performance.now();
     const result = await runNeuralJevReranker({
       candidates: dummyPool,
       userContext: {
         rejectedHistory: ['이전 가설 기각됨'],
       },
     });
-    const duration = performance.now() - startTime;
 
-    // 단 1회만 호출(Batch=5 단일 패스)
-    expect(mockRun).toHaveBeenCalledTimes(1);
+    expect(mockEvaluator).toHaveBeenCalledTimes(1);
+    expect(result.scoringEngine).toBe('gemini-decision-1');
     expect(result.selectedKey).toBe('candidate_pivot');
     expect(result.winningSentence).toBe(dummyPool.candidate_pivot);
-    expect(result.confidenceScore).toBeGreaterThan(0.5);
+    expect(result.candidateScores.candidate_project).toBe(0.72);
+    expect(result.candidateScores.candidate_pivot).toBe(0.99);
     expect(result.reasonNoul).toContain('기각 이력');
+  });
 
-    // 80ms 이내 처리 SLA 확인
-    expect(duration).toBeLessThan(80);
+  it('ocrClient는 사이드카 Fetcher 주입 시 ko-hand-ocr 텍스트를 반환하고 미설정 시 null로 폴백해야 한다', async () => {
+    const fallbackRes = await recognizeHandwritingWithSidecar('data:image/png;base64,abc');
+    expect(fallbackRes).toBeNull();
+
+    setOcrFetcherForTesting(async () => ({
+      text: '몽고DB -> PostgreSQL',
+      latencyMs: 38,
+    }));
+
+    const sidecarRes = await recognizeHandwritingWithSidecar('data:image/png;base64,abc');
+    expect(sidecarRes).toEqual({
+      text: '몽고DB -> PostgreSQL',
+      latencyMs: 38,
+      source: 'ko-hand-ocr',
+    });
   });
 });

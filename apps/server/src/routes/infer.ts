@@ -80,7 +80,12 @@ inferRoute.post('/', async (c) => {
     extractedKeywords: system1Output.keywords,
     sentence: rerankerResult.winningSentence,
     candidatePool,
-    rerankerResult,
+    rerankerResult: {
+      ...rerankerResult,
+      ocrSource: system1Output.ocrSource,
+    },
+    ocrSource: system1Output.ocrSource,
+    ocrRawText: system1Output.ocrRawText,
   };
 
   return c.json(response);

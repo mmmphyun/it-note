@@ -1,13 +1,40 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import * as ort from 'onnxruntime-node';
-import type { CandidateHypothesisPool, JevRerankerInput, JevRerankerResult } from '@itnote/shared';
+import type {
+  CandidateHypothesisPool,
+  CandidateKey,
+  JevRerankerInput,
+  JevRerankerResult,
+} from '@itnote/shared';
 import { runJevReranker } from './system1Jev.js';
 
-let activeSession: ort.InferenceSession | null = null;
-let isPreloaded = false;
+export type DecisionQuestionType = 'noul' | 'choice' | 'score';
 
-const CANDIDATE_KEYS: Array<keyof CandidateHypothesisPool> = [
+export interface DecisionQuestion {
+  type: DecisionQuestionType;
+  instructions: string;
+  criteria?: Record<string, string>;
+}
+
+export interface DecisionsApiRequest {
+  model: 'gemini-decision-1';
+  input: string;
+  questions: Record<string, DecisionQuestion>;
+}
+
+export interface DecisionAnswer {
+  type: DecisionQuestionType;
+  noul?: number;
+  selected_option?: string;
+  score?: number;
+  confidence?: number;
+}
+
+export interface DecisionsApiResponse {
+  answers?: Record<string, DecisionAnswer>;
+}
+
+export type DecisionEvaluatorFn = (req: DecisionsApiRequest) => Promise<DecisionsApiResponse>;
+
+const CANDIDATE_KEYS: CandidateKey[] = [
   'candidate_project',
   'candidate_routine',
   'candidate_pivot',
@@ -15,61 +42,14 @@ const CANDIDATE_KEYS: Array<keyof CandidateHypothesisPool> = [
   'candidate_definition',
 ];
 
-/**
- * 간단한 서브워드/문자 정규화 토큰 생성기 (한국어 특화 로컬 인코더용)
- */
-function tokenizeText(text: string, maxLen: number): number[] {
-  // [CLS]=2, [SEP]=3, [PAD]=0, [UNK]=1 기준 어휘 인덱스 생성
-  const tokens: number[] = [2]; // [CLS]
-  const chars = Array.from(text.trim());
-  for (const ch of chars) {
-    if (tokens.length >= maxLen - 1) break;
-    const code = ch.charCodeAt(0);
-    // 한글 음절 및 유니코드 문자를 해시 인덱스로 정규화
-    tokens.push((code % 30000) + 10);
-  }
-  tokens.push(3); // [SEP]
+const DECISIONS_API_URL = 'https://generativelanguage.googleapis.com/v1beta/decisions';
+const DECISIONS_TIMEOUT_MS = 3000;
 
-  while (tokens.length < maxLen) {
-    tokens.push(0); // [PAD]
-  }
-  return tokens;
-}
+let customEvaluator: DecisionEvaluatorFn | null = null;
+let engineInitialized = false;
 
 /**
- * 5개 직교 가설 후보를 batch_size=5 단일 텐서로 변환
- */
-export function buildBatchTensors(
-  candidates: CandidateHypothesisPool,
-  contextStr: string,
-  seqLen = 128
-): { inputIds: ort.Tensor; attentionMask: ort.Tensor } {
-  const batchSize = 5;
-  const totalElements = batchSize * seqLen;
-  const inputIdsBuffer = new BigInt64Array(totalElements);
-  const maskBuffer = new BigInt64Array(totalElements);
-
-  CANDIDATE_KEYS.forEach((key, bIdx) => {
-    const candidateText = candidates[key];
-    const combined = `${contextStr} [SEP] ${candidateText}`;
-    const tokenIds = tokenizeText(combined, seqLen);
-
-    for (let sIdx = 0; sIdx < seqLen; sIdx++) {
-      const flatIdx = bIdx * seqLen + sIdx;
-      const tid = tokenIds[sIdx] ?? 0;
-      inputIdsBuffer[flatIdx] = BigInt(tid);
-      maskBuffer[flatIdx] = tid > 0 ? 1n : 0n;
-    }
-  });
-
-  const inputIds = new ort.Tensor('int64', inputIdsBuffer, [batchSize, seqLen]);
-  const attentionMask = new ort.Tensor('int64', maskBuffer, [batchSize, seqLen]);
-
-  return { inputIds, attentionMask };
-}
-
-/**
- * 소프트맥스 확률 정규화
+ * 소프트맥스 확률 정규화 유틸리티
  */
 export function computeSoftmax(logits: number[]): number[] {
   const maxLogit = Math.max(...logits);
@@ -79,63 +59,86 @@ export function computeSoftmax(logits: number[]): number[] {
 }
 
 /**
- * 서버 기동 시 1회 모델 프리로드 (preload=True)
+ * 5개 후보 문장에 대한 Google Decisions API (gemini-decision-1) 병렬 채점 질문 생성
  */
-export async function preloadNeuralJevEngine(customPath?: string): Promise<boolean> {
-  if (isPreloaded && activeSession) {
-    return true;
+export function buildDecisionQuestions(
+  candidates: CandidateHypothesisPool,
+  contextStr: string
+): Record<CandidateKey, DecisionQuestion> {
+  const questions = {} as Record<CandidateKey, DecisionQuestion>;
+  for (const key of CANDIDATE_KEYS) {
+    questions[key] = {
+      type: 'noul',
+      instructions:
+        `Given user context (${contextStr}), is the following Korean hypothesis sentence accurate, natural, and aligned with the user's intent without repeating rejected options? Candidate: "${candidates[key]}"`,
+    };
   }
-
-  const defaultPath = path.resolve(process.cwd(), 'models/klue_roberta_large_int8.onnx');
-  const targetPath = customPath || process.env.JEV_ONNX_MODEL_PATH || defaultPath;
-
-  if (!fs.existsSync(targetPath)) {
-    // 모델 파일이 아직 없으면 휴리스틱 Fallback 모드로 정상 대기
-    isPreloaded = false;
-    activeSession = null;
-    return false;
-  }
-
-  try {
-    activeSession = await ort.InferenceSession.create(targetPath, {
-      executionProviders: ['cpu'],
-      graphOptimizationLevel: 'all',
-      intraOpNumThreads: 2,
-    });
-    isPreloaded = true;
-    return true;
-  } catch (err) {
-    console.warn('[neuralJevEngine] Failed to load ONNX session, using fallback:', err);
-    activeSession = null;
-    isPreloaded = false;
-    return false;
-  }
+  return questions;
 }
 
 /**
- * 테스트용 세션 주입 인터페이스
+ * 서버 기동 시 gemini-decision-1 API 키 및 준비 상태 점검
  */
-export function setNeuralSessionForTesting(session: ort.InferenceSession | null): void {
-  activeSession = session;
-  isPreloaded = session !== null;
+export async function preloadNeuralJevEngine(): Promise<boolean> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  engineInitialized = Boolean(apiKey || customEvaluator);
+  return engineInitialized;
 }
 
 /**
- * 현재 신경망 세션 활성화 여부
+ * 테스트용 gemini-decision-1 평가기 주입 인터페이스
+ */
+export function setDecisionEvaluatorForTesting(evaluator: DecisionEvaluatorFn | null): void {
+  customEvaluator = evaluator;
+  engineInitialized = evaluator !== null;
+}
+
+/**
+ * 현재 gemini-decision-1 판별기 활성화 여부
  */
 export function isNeuralEngineReady(): boolean {
-  return activeSession !== null;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  return customEvaluator !== null || (engineInitialized && Boolean(apiKey));
+}
+
+async function callGeminiDecisionsApi(
+  req: DecisionsApiRequest,
+  apiKey: string
+): Promise<DecisionsApiResponse> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DECISIONS_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(DECISIONS_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(req),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      throw new Error(`Decisions API returned HTTP ${res.status}`);
+    }
+    return (await res.json()) as DecisionsApiResponse;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
- * KLUE-RoBERTa 인코더 배치 순전파 기반 Jev Reranker
- * 5-Way 직교 가설 후보를 batch_size=5 1회 패스로 채점
+ * Google System 1 (gemini-decision-1) 기반 5-Way Rubric Score Reranker
+ * 각 후보 문장을 독립 점수([0.00, 1.00])로 채점하여 최적 1문장을 확정한다.
  */
 export async function runNeuralJevReranker(input: JevRerankerInput): Promise<JevRerankerResult> {
   const { candidates, userContext } = input;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const shouldInvokeApi =
+    customEvaluator !== null || (process.env.NODE_ENV !== 'test' && Boolean(apiKey));
 
-  // 신경망 세션이 없는 경우 기존 휴리스틱 Jev Reranker로 Fallback
-  if (!activeSession) {
+  if (!shouldInvokeApi) {
     return runJevReranker(input);
   }
 
@@ -149,81 +152,82 @@ export async function runNeuralJevReranker(input: JevRerankerInput): Promise<Jev
   if (userContext.rejectedHistory?.length) {
     contextSegments.push(`기각이력: ${userContext.rejectedHistory.join(', ')}`);
   }
+  if (userContext.linkedContexts?.length) {
+    contextSegments.push(
+      `연관노트: ${userContext.linkedContexts.map((c) => c.sentence).slice(0, 2).join(' / ')}`
+    );
+  }
   const contextStr = contextSegments.join(' | ') || '기본 사용자 맥락';
 
-  // 1. 단일 배치(batch_size=5) 텐서 생성
-  const { inputIds, attentionMask } = buildBatchTensors(candidates, contextStr, 128);
+  const req: DecisionsApiRequest = {
+    model: 'gemini-decision-1',
+    input: contextStr,
+    questions: buildDecisionQuestions(candidates, contextStr),
+  };
 
   try {
-    // 2. 단 1회 포워드 패스 실행 (50~80ms CPU)
-    const feeds: Record<string, ort.Tensor> = {
-      input_ids: inputIds,
-      attention_mask: attentionMask,
-    };
+    const response = customEvaluator
+      ? await customEvaluator(req)
+      : await callGeminiDecisionsApi(req, apiKey!);
 
-    const results = await activeSession.run(feeds);
-    const outputNames = activeSession.outputNames;
-    const primaryOutput = results[outputNames[0]];
+    const answers = response.answers ?? {};
+    const rawScores = {} as Record<CandidateKey, number>;
 
-    // 3. 로짓 산출 및 Jev Rule Bias 병합
-    const rawLogits: number[] = [];
-    if (primaryOutput && primaryOutput.data) {
-      const dataArray = Array.from(primaryOutput.data as ArrayLike<number>);
-      // batch_size=5 로짓 추출 (출력 텐서의 첫 토큰 또는 클래스 점수)
-      for (let i = 0; i < 5; i++) {
-        const val = dataArray[i] ?? 0;
-        rawLogits.push(Number(val));
-      }
-    } else {
-      for (let i = 0; i < 5; i++) rawLogits.push(0.5);
+    for (const key of CANDIDATE_KEYS) {
+      const ans = answers[key];
+      const base =
+        typeof ans?.noul === 'number'
+          ? ans.noul
+          : typeof ans?.score === 'number'
+            ? ans.score
+            : typeof ans?.confidence === 'number'
+              ? ans.confidence
+              : 0.5;
+      rawScores[key] = base;
     }
 
-    // 맥락 신호 가중치 보정
+    // 사용자 맥락 신호 보정 (과도한 쏠림 없이 독립 점수 스케일 유지)
     if (userContext.rejectedHistory && userContext.rejectedHistory.length > 0) {
-      rawLogits[2] += 1.2; // candidate_pivot 가중치 상향
+      rawScores.candidate_pivot += 0.18;
     }
     if (userContext.linkedContexts && userContext.linkedContexts.length > 0) {
-      rawLogits[3] += userContext.linkedContexts[0].similarity * 1.5; // candidate_longterm 상향
+      rawScores.candidate_longterm += userContext.linkedContexts[0].similarity * 0.15;
     }
     if (userContext.currentRoutine) {
-      rawLogits[1] += 0.8; // candidate_routine 상향
+      rawScores.candidate_routine += 0.12;
     }
 
-    // 4. 소프트맥스 정규화
-    const probabilities = computeSoftmax(rawLogits);
+    const candidateScores = {} as Record<CandidateKey, number>;
+    let bestKey: CandidateKey = 'candidate_project';
+    let maxScore = -1;
 
-    let bestIdx = 0;
-    let maxProb = -1;
-    const candidateScores = {} as Record<keyof CandidateHypothesisPool, number>;
-
-    CANDIDATE_KEYS.forEach((key, idx) => {
-      const p = probabilities[idx] ?? 0;
-      candidateScores[key] = p;
-      if (p > maxProb) {
-        maxProb = p;
-        bestIdx = idx;
+    for (const key of CANDIDATE_KEYS) {
+      const normalized = Math.max(0, Math.min(1, Math.round(rawScores[key] * 100) / 100));
+      candidateScores[key] = normalized;
+      if (normalized > maxScore) {
+        maxScore = normalized;
+        bestKey = key;
       }
-    });
+    }
 
-    const winningKey = CANDIDATE_KEYS[bestIdx];
-
-    const reasonMap: Record<keyof CandidateHypothesisPool, string> = {
-      candidate_project: '신경망 인코더 판별: 프로젝트 및 작업 목표 정합도 최상위 판정',
-      candidate_routine: '신경망 인코더 판별: 현재 시간대 루틴 수행 과제 적합 판정',
-      candidate_pivot: '신경망 인코더 판별: 기각 이력 및 취소선 의도 반영 최적 대안 판정',
-      candidate_longterm: '신경망 인코더 판별: 과거 확정 노트와의 의미적 연관성 최상위 판정',
-      candidate_definition: '신경망 인코더 판별: 개념 정의 및 핵심 요약 일치도 최상위 판정',
+    const reasonMap: Record<CandidateKey, string> = {
+      candidate_project: 'gemini-decision-1 판별: 프로젝트 및 작업 목표 정합도 최상위 판정',
+      candidate_routine: 'gemini-decision-1 판별: 현재 시간대 루틴 수행 과제 적합 판정',
+      candidate_pivot: 'gemini-decision-1 판별: 기각 이력 및 취소선 의도 반영 최적 대안 판정',
+      candidate_longterm: 'gemini-decision-1 판별: 과거 확정 노트와의 의미적 연관성 최상위 판정',
+      candidate_definition: 'gemini-decision-1 판별: 개념 정의 및 핵심 요약 일치도 최상위 판정',
     };
 
     return {
-      selectedKey: winningKey,
-      winningSentence: candidates[winningKey],
-      confidenceScore: maxProb,
-      reasonNoul: reasonMap[winningKey],
+      selectedKey: bestKey,
+      winningSentence: candidates[bestKey],
+      confidenceScore: maxScore,
+      reasonNoul: reasonMap[bestKey],
       candidateScores,
+      scoringEngine: 'gemini-decision-1',
     };
   } catch (err) {
-    console.warn('[neuralJevEngine] Inference failed, falling back to heuristic:', err);
+    console.warn('[neuralJevEngine] gemini-decision-1 failed, falling back to heuristic:', err);
     return runJevReranker(input);
   }
 }

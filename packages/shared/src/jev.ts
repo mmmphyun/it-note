@@ -93,9 +93,13 @@ export interface InferRequestBody {
   userContext?: InferUserContext;
 }
 
+export const DEFAULT_REUSE_THRESHOLD = 0.60;
+
 export interface InferResponseBody extends JevDecisionResult {
   candidatePool?: CandidateHypothesisPool;
   rerankerResult?: JevRerankerResult;
+  ocrSource?: 'ko-hand-ocr' | 'gemini-multimodal' | 'raw-text';
+  ocrRawText?: string;
 }
 
 /**
@@ -134,4 +138,6 @@ export interface JevRerankerResult {
   confidenceScore: number;
   reasonNoul: string;
   candidateScores: Record<CandidateKey, number>;
+  scoringEngine?: 'gemini-decision-1' | 'heuristic';
+  ocrSource?: 'ko-hand-ocr' | 'gemini-multimodal' | 'raw-text';
 }

@@ -1,6 +1,11 @@
 /**
  * 차세대 선제적 투기 실행 및 3-Tier 엔진 스키마
  */
+import type {
+  CandidateHypothesisPool,
+  ExtractedKeywords,
+  JevRerankerResult,
+} from './jev';
 
 export type EngineTier = 'high-local' | 'lite-local' | 'cloud';
 
@@ -40,4 +45,7 @@ export interface PrefetchedHypothesisSlot {
   confidenceScore: number;
   fetchedAt: number;
   isStale: boolean;
+  candidatePool?: CandidateHypothesisPool;
+  rerankerResult?: JevRerankerResult;
+  extractedKeywords?: ExtractedKeywords;
 }
