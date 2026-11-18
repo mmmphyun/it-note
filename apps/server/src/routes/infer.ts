@@ -83,10 +83,17 @@ inferRoute.post('/', async (c) => {
       request: body,
     });
 
-    // 3. Discriminator: Neural Jev Reranker가 맥락 대조 후 최적 1문장 Choice 확정
+    // 3. Discriminator: Neural Jev Reranker가 원문·도메인·맥락 대조 후 최적 1문장 Choice 확정
     const rerankerResult = await runNeuralJevReranker({
       candidates: candidatePool,
       userContext: {
+        rawTextInput: system1Output.ocrRawText ?? body.rawTextInput,
+        activeKeywords: system1Output.keywords.active,
+        struckOutKeywords: system1Output.keywords.struckOut,
+        chosenKeywords: system1Output.keywords.chosen,
+        domainRoute: system1Output.decision.domainRoute.selected,
+        actionTask: system1Output.decision.actionTask?.selected,
+        previousEvaporatedContext: body.previousEvaporatedContext,
         persona: body.userContext?.persona,
         currentRoutine: body.userContext?.currentRoutineState,
         rejectedHistory: body.rejectedHypotheses,

@@ -121,6 +121,13 @@ export type CandidateKey = keyof CandidateHypothesisPool;
 export interface JevRerankerInput {
   candidates: CandidateHypothesisPool;
   userContext: {
+    rawTextInput?: string;
+    activeKeywords?: string[];
+    struckOutKeywords?: string[];
+    chosenKeywords?: string[];
+    domainRoute?: DomainRoute;
+    actionTask?: ActionTask;
+    previousEvaporatedContext?: string | null;
     persona?: InferUserContext['persona'];
     currentRoutine?: string;
     linkedContexts?: Array<{

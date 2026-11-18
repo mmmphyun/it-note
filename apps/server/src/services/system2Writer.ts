@@ -57,10 +57,12 @@ export async function generateCandidateHypothesisPool(params: System2Params): Pr
     rejectedList.length > 0
       ? `\nRejected Hypotheses (NEVER repeat or paraphrase these):\n${rejectedList.map((r) => `- "${r}"`).join('\n')}`
       : '';
+  const personaRole = request.userContext?.persona?.role ?? '일반 사용자';
+  const actionTask = decision.actionTask?.selected ?? 'ITEM_ACCUMULATE';
 
-  const prompt = `You are the Hypothesis Generator of 'It!note'.
-Generate a JSON object containing EXACTLY 5 orthogonal Korean hypothesis sentences for the user's handwritten note.
-Each sentence must be a complete question ending with '~맞나요?' or '~인가요?'.
+  const prompt = `You are the empathetic Korean thinking companion of 'It!note'.
+Generate a JSON object containing EXACTLY 5 distinct, natural, human-sounding Korean question sentences for the user's memo.
+Each sentence MUST end with '~맞나요?', '~인가요?', '~건가요?', or '~하시려는 건가요?'.
 Never output markdown blocks or conversational text. Return valid JSON only:
 
 {
@@ -71,17 +73,29 @@ Never output markdown blocks or conversational text. Return valid JSON only:
   "candidate_definition": "..."
 }
 
-Rules:
-1. candidate_project: Frame around architecture, implementation, coding or project workflow.
-2. candidate_routine: Frame around user's daily habits, meals, schedule or routine.
-3. candidate_pivot: If strikethrough exists (${struckOutKw || 'none'}), pivot from it to ${activeKw}. Otherwise offer a bold alternative perspective.
-4. candidate_longterm: Connect to previous context (${prevContext || 'none'}) or past notes (${recentNotes.slice(-2).join(' / ') || 'none'}).
-5. candidate_definition: Frame around core terminology definition or summary.
+CRITICAL NATURALNESS & DOMAIN RULES (ZERO TOLERANCE FOR ROBOTIC TONE):
+1. NEVER use robotic database/record-keeping phrasing such as "데이터 단위", "기록 항목", "수정하는 것이 맞나요?", "입력하신 내용", "소비 비용과 선호 메뉴를 기록하는".
+2. Infer the REAL-WORLD HUMAN ACTION (ordering coffee/food, choosing a tech stack, adjusting a price/time, planning a workflow).
+3. DOMAIN PRECEDENCE OVER PERSONA:
+   - The user's registered role is "${personaRole}".
+   - However, if Inferred Domain is ROUTINE_TASK or GENERAL_IDEA (e.g. cafe order, drinks, food, errands, prices), NEVER force coding, architecture, DevSecOps, or data-modeling terms into ANY of the 5 candidates.
+   - Frame all 5 candidates naturally within the ACTUAL domain of the note!
+4. Keep each sentence concise and natural (around 15-35 Korean characters where possible).
 
-Active Keywords: ${activeKw}
-Struck-out Keywords: ${struckOutKw || 'none'}
-Chosen (Circled): ${(keywords.chosen ?? []).join(', ') || 'none'}
-Inferred Domain: ${domain}
+5 Orthogonal Angles (Adapt every angle strictly to the note's real domain):
+1. candidate_project: Primary real-world intent/action (e.g. if cafe: ordering/changing menu & cafe choice; if dev: main implementation/architecture plan).
+2. candidate_routine: Daily schedule/habit/timing angle (e.g. ordering for today's coffee break or fitting into today's routine).
+3. candidate_pivot: Contrast/change angle focusing on why "${struckOutKw || 'prior choice'}" was dropped/crossed out in favor of "${activeKw}" (or price/option adjustment).
+4. candidate_longterm: Continuity angle connecting to previous context (${prevContext || 'none'}) or recent notes (${recentNotes.slice(-2).join(' / ') || 'none'}).
+5. candidate_definition: Specific option/detail confirmation (e.g. confirming exact price, store name, menu option, or core concept summary in plain human words).
+
+Context:
+- Raw Input: ${request.rawTextInput ?? 'none'}
+- Active Keywords: ${activeKw}
+- Struck-out Keywords: ${struckOutKw || 'none'}
+- Chosen (Circled): ${(keywords.chosen ?? []).join(', ') || 'none'}
+- Inferred Domain: ${domain}
+- Inferred ActionTask: ${actionTask}
 ${rejectedPrompt}
 `;
 

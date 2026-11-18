@@ -69,7 +69,7 @@ export function buildDecisionQuestions(
     questions[key] = {
       type: 'noul',
       instructions:
-        `Given user context (${contextStr}), is the following Korean hypothesis sentence accurate, natural, and aligned with the user's intent without repeating rejected options? Candidate: "${candidates[key]}"`,
+        `Evaluate against user memo context (${contextStr}). Score TRUE (0.70-0.95) if the Korean question sounds like a natural human companion reflecting the note's real domain and strikethrough/choice intent without repeating rejected sentences. Score FALSE (0.05-0.25) if it uses robotic DB phrasing ("데이터 단위", "기록 항목") or forces unrelated job/tech jargon onto an everyday note. Candidate: "${candidates[key]}"`,
     };
   }
   return questions;
@@ -151,7 +151,12 @@ async function callGeminiDecisionsApi(
       throw decisionErr;
     }
 
-    const scorePrompt = `Evaluate each of the 5 Korean hypothesis candidates against the user context and return an independent probability score between 0.00 and 1.00 for each key in JSON format only.
+    const scorePrompt = `Evaluate each of the 5 Korean hypothesis candidates against the user's memo context and return an independent probability score between 0.00 and 1.00 for each key in JSON format only.
+Scoring Rubric:
+- 0.75-0.95: Sounds like a warm, natural human question accurately reflecting the raw note, domain, and strikethrough/choice intent.
+- 0.40-0.65: Acceptable alternative angle within the right domain, not repeating rejected hypotheses.
+- 0.05-0.25: Robotic/database phrasing ("데이터 단위", "기록하는", "수정"), repeats rejected ideas, or forces unrelated tech/job jargon onto an everyday note.
+
 Context: ${req.input}
 Questions:
 ${Object.entries(req.questions)
@@ -206,8 +211,29 @@ export async function runNeuralJevReranker(input: JevRerankerInput): Promise<Jev
   }
 
   const contextSegments: string[] = [];
+  if (userContext.rawTextInput) {
+    contextSegments.push(`원문메모: ${userContext.rawTextInput}`);
+  }
+  if (userContext.activeKeywords?.length) {
+    contextSegments.push(`활성키워드: ${userContext.activeKeywords.join(', ')}`);
+  }
+  if (userContext.struckOutKeywords?.length) {
+    contextSegments.push(`취소키워드: ${userContext.struckOutKeywords.join(', ')}`);
+  }
+  if (userContext.chosenKeywords?.length) {
+    contextSegments.push(`선택키워드: ${userContext.chosenKeywords.join(', ')}`);
+  }
+  if (userContext.domainRoute) {
+    contextSegments.push(`판별도메인: ${userContext.domainRoute}`);
+  }
+  if (userContext.actionTask) {
+    contextSegments.push(`행동태스크: ${userContext.actionTask}`);
+  }
+  if (userContext.previousEvaporatedContext) {
+    contextSegments.push(`직전맥락: ${userContext.previousEvaporatedContext}`);
+  }
   if (userContext.persona?.role) {
-    contextSegments.push(`직무: ${userContext.persona.role}`);
+    contextSegments.push(`직무(참고용): ${userContext.persona.role}`);
   }
   if (userContext.currentRoutine) {
     contextSegments.push(`루틴: ${userContext.currentRoutine}`);
@@ -248,15 +274,15 @@ export async function runNeuralJevReranker(input: JevRerankerInput): Promise<Jev
     rawScores[key] = base;
   }
 
-  // 사용자 맥락 신호 보정 (과도한 쏠림 없이 독립 점수 스케일 유지)
+  // 사용자 맥락 신호 미세 보정 (모델의 자연스러움 판별을 덮어쓰지 않도록 완화)
   if (userContext.rejectedHistory && userContext.rejectedHistory.length > 0) {
-    rawScores.candidate_pivot += 0.18;
+    rawScores.candidate_pivot += 0.08;
   }
   if (userContext.linkedContexts && userContext.linkedContexts.length > 0) {
-    rawScores.candidate_longterm += userContext.linkedContexts[0].similarity * 0.15;
+    rawScores.candidate_longterm += userContext.linkedContexts[0].similarity * 0.1;
   }
   if (userContext.currentRoutine) {
-    rawScores.candidate_routine += 0.12;
+    rawScores.candidate_routine += 0.05;
   }
 
   const candidateScores = {} as Record<CandidateKey, number>;

@@ -101,7 +101,7 @@ describe('System 1 Decision Engine (gemini-decision-1 & ko-hand-ocr)', () => {
     expect(result.selectedKey).toBe('candidate_pivot');
     expect(result.winningSentence).toBe(dummyPool.candidate_pivot);
     expect(result.candidateScores.candidate_project).toBe(0.72);
-    expect(result.candidateScores.candidate_pivot).toBe(0.99);
+    expect(result.candidateScores.candidate_pivot).toBe(0.89);
     expect(result.reasonNoul).toContain('기각 이력');
   });
 
