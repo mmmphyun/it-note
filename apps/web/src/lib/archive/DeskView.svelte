@@ -1,18 +1,32 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { ConfirmedNote, EvolvingContext, RoutineSlot, BillingStatus, UserProfile, EngineConfig, EngineTier, NetworkStatus } from '@itnote/shared';
+  import type {
+    ConfirmedNote,
+    EvolvingContext,
+    RoutineSlot,
+    BillingStatus,
+    UserProfile,
+    EngineConfig,
+    EngineTier,
+    NetworkStatus,
+    EncryptedNotePayload,
+    SyncPullResponse,
+  } from '@itnote/shared';
   import RoutineMatrix from '../auth/RoutineMatrix.svelte';
   import PaymentModal from '../billing/PaymentModal.svelte';
   import { loadEngineConfig, saveEngineConfig, getTierMetadata } from '../engine/engineManager';
   import { getNetworkStatus, onNetworkChange } from '../engine/networkDetector';
+  import { encryptNoteText, decryptNoteText } from '../crypto/cryptoSync';
+  import { getE2eePassphrase, setE2eePassphrase, mergeConfirmedNotesToDb } from '../storage/noteDb';
 
   interface Props {
     confirmedNotes: ConfirmedNote[];
     onBackToCanvas: () => void;
     onLogout?: () => void;
+    onNotesSynced?: (notes: ConfirmedNote[]) => void;
   }
 
-  let { confirmedNotes, onBackToCanvas, onLogout }: Props = $props();
+  let { confirmedNotes, onBackToCanvas, onLogout, onNotesSynced }: Props = $props();
 
   let activeTab = $state<'notes' | 'context' | 'routine' | 'profile' | 'billing' | 'engine'>('notes');
   let evolvingContext = $state<EvolvingContext>({
@@ -42,6 +56,11 @@
   let isSaving = $state(false);
   let isRefunding = $state(false);
   let statusMessage = $state<string | null>(null);
+
+  // Zero-Knowledge E2EE 마스터 패스프레이즈 및 동기화 상태
+  let e2eePassphrase = $state(getE2eePassphrase());
+  let isSyncing = $state(false);
+  let syncStatusText = $state<string | null>(null);
 
   // 3-Tier AI 엔진 및 네트워크 상태
   let engineConfig = $state<EngineConfig>(loadEngineConfig());
@@ -275,6 +294,109 @@
     }
   }
 
+  function handleSavePassphrase() {
+    const trimmed = e2eePassphrase.trim();
+    setE2eePassphrase(trimmed);
+    syncStatusText = trimmed
+      ? '로컬 세션에 E2EE 마스터 키가 적용되었습니다. (서버 미전송)'
+      : 'E2EE 마스터 키가 해제되었습니다.';
+  }
+
+  async function handleE2eePush() {
+    const pass = e2eePassphrase.trim();
+    if (!pass) {
+      syncStatusText = '암호화 백업을 위해 마스터 패스프레이즈를 먼저 입력하십시오.';
+      return;
+    }
+    setE2eePassphrase(pass);
+    if (confirmedNotes.length === 0) {
+      syncStatusText = '백업할 확정 노트가 없습니다.';
+      return;
+    }
+
+    isSyncing = true;
+    try {
+      const encryptedNotes: EncryptedNotePayload[] = [];
+      for (const note of confirmedNotes) {
+        const blob = await encryptNoteText(JSON.stringify(note), pass, note.id);
+        encryptedNotes.push(blob);
+      }
+
+      const res = await fetch('/api/sync/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: encryptedNotes }),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      syncStatusText = `AES-256-GCM 암호화 완료: ${data.savedCount ?? encryptedNotes.length}건 동기화됨`;
+    } catch (err) {
+      syncStatusText = `암호화 백업 실패: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      isSyncing = false;
+    }
+  }
+
+  async function handleE2eePull() {
+    const pass = e2eePassphrase.trim();
+    if (!pass) {
+      syncStatusText = '복호화를 위해 마스터 패스프레이즈를 먼저 입력하십시오.';
+      return;
+    }
+    setE2eePassphrase(pass);
+
+    isSyncing = true;
+    try {
+      const res = await fetch('/api/sync/pull');
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as SyncPullResponse;
+      const decryptedList: ConfirmedNote[] = [];
+      let failedCount = 0;
+
+      for (const blob of data.notes || []) {
+        try {
+          const plaintext = await decryptNoteText(blob, pass);
+          try {
+            const parsed = JSON.parse(plaintext) as Partial<ConfirmedNote>;
+            decryptedList.push({
+              id: parsed.id || blob.noteId,
+              sentence: parsed.sentence || plaintext,
+              confirmedAt: parsed.confirmedAt || blob.updatedAt,
+              keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
+              sourceBBox: parsed.sourceBBox,
+            });
+          } catch {
+            decryptedList.push({
+              id: blob.noteId,
+              sentence: plaintext,
+              confirmedAt: blob.updatedAt,
+              keywords: [],
+            });
+          }
+        } catch {
+          failedCount++;
+        }
+      }
+
+      if (decryptedList.length > 0) {
+        const merged = await mergeConfirmedNotesToDb(decryptedList);
+        onNotesSynced?.(merged);
+      }
+      syncStatusText =
+        failedCount > 0
+          ? `복원 ${decryptedList.length}건 완료 (키 불일치 ${failedCount}건 제외)`
+          : `복호화 및 IndexedDB 병합 완료: ${decryptedList.length}건`;
+    } catch (err) {
+      syncStatusText = `암호문 복원 실패: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      isSyncing = false;
+    }
+  }
+
   function handlePaymentSuccess(data: any) {
     billingStatus = {
       plan: 'pro',
@@ -335,6 +457,33 @@
   <main class="desk-content">
     {#if activeTab === 'notes'}
       <section class="section">
+        <div class="e2ee-sync-panel">
+          <div class="e2ee-header">
+            <span class="e2ee-title">Zero-Knowledge E2EE 동기화 (Web Crypto AES-256-GCM)</span>
+            <span class="e2ee-hint">패스프레이즈는 서버로 전송되지 않고 로컬 복호화에만 사용됩니다.</span>
+          </div>
+          <div class="e2ee-controls">
+            <input
+              type="password"
+              class="e2ee-input"
+              placeholder="마스터 패스프레이즈 입력"
+              bind:value={e2eePassphrase}
+            />
+            <button type="button" class="btn btn-e2ee-key" onclick={handleSavePassphrase}>
+              키 적용
+            </button>
+            <button type="button" class="btn btn-e2ee-push" onclick={handleE2eePush} disabled={isSyncing}>
+              {isSyncing ? '처리 중...' : '암호화 백업 (Push)'}
+            </button>
+            <button type="button" class="btn btn-e2ee-pull" onclick={handleE2eePull} disabled={isSyncing}>
+              {isSyncing ? '처리 중...' : '암호문 복원 (Pull)'}
+            </button>
+          </div>
+          {#if syncStatusText}
+            <p class="e2ee-status">{syncStatusText}</p>
+          {/if}
+        </div>
+
         <h2>흡수된 확정 노트 ({confirmedNotes.length})</h2>
         {#if confirmedNotes.length === 0}
           <div class="empty-state">
@@ -1152,5 +1301,63 @@
     font-size: 11px;
     font-weight: 600;
     color: #385E72;
+  }
+
+  .e2ee-sync-panel {
+    background: #F4F7F9;
+    border: 1px solid rgba(56, 94, 114, 0.22);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+  }
+  .e2ee-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .e2ee-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #2D4C5D;
+  }
+  .e2ee-hint {
+    font-size: 11px;
+    color: #667885;
+  }
+  .e2ee-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .e2ee-input {
+    flex: 1;
+    min-width: 180px;
+    padding: 7px 12px;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    border-radius: 6px;
+    font-size: 13px;
+    background: #FFF;
+  }
+  .btn-e2ee-key {
+    background: #E8EEF2;
+    color: #2D4C5D;
+  }
+  .btn-e2ee-push {
+    background: #385E72;
+    color: #FFF;
+  }
+  .btn-e2ee-pull {
+    background: #2B2B2B;
+    color: #FAF8F5;
+  }
+  .e2ee-status {
+    margin: 8px 0 0 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #2E7D32;
   }
 </style>

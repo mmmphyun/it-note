@@ -200,22 +200,22 @@
 - [x] **Step 4-2: 프리페치 캐시 풀 및 0ms 트랜지션 연동**
   - [x] `PaperCanvas.svelte` 라이프사이클 연동: 잉크 투명도 0.0 도달 프레임에서 대기 없이 캐시된 문장을 즉시 `tegaki` 한글 획순 대필로 연결
   - [x] 최소 호출 간격 3초 쓰로틀(Throttle) 및 네트워크 실패 시 90초 만료 시점 온디맨드 추론으로 조용한 폴백(Silent Fallback) 구현
-  - [ ] `PrefetchedHypothesisSlot` 소비 시 `extractedKeywords`, `candidatePool`, `rerankerResult` 보존 연동
+  - [x] `PrefetchedHypothesisSlot` 소비 시 `extractedKeywords`, `candidatePool`, `rerankerResult` 보존 연동
 - [x] **Step 4-3: 로컬 Jev 기반 장기 맥락 자연어 검색 엔진 및 IndexedDB 영속화**
   - [x] `apps/web/src/lib/jev/localJevMatcher.ts`: `pg-jev` 알고리즘을 단일 TS 모듈로 포팅하여 확정 노트 인메모리 스캔 및 Top-3 도출
   - [x] `apps/web/src/lib/jev/__tests__/localJevMatcher.test.ts`: 자카드 유사도 및 최신성 감쇄 가중치 단위 테스트 검증 (100% 통과)
-  - [ ] `apps/web/src/lib/storage/noteDb.ts`: 브라우저 IndexedDB(`itnote_local_db`) 영속 저장·로드 연결
-- [ ] **Step 4-4: `ko-hand-ocr` Python 사이드카 & `gemini-decision-1` 판별 엔진 전환 (ONNX 대체)**
-  - [ ] `services/ocr/main.py` & `apps/server/src/services/ocrClient.ts`: `jysvai/ko-hand-ocr` Python HTTP 사이드카 및 미실행 시 Gemini 멀티모달 폴백 구현
-  - [ ] `apps/server/src/services/geminiDecisionClient.ts`: Google `gemini-decision-1` 기반 시각 기호 판별 + 5개 후보별 독립 점수/확률(`candidateScores`, `0.00-1.00`) 산출 구현 (기존 `onnxruntime-node` 제거)
-  - [ ] `marginBox` 기하학 고정 계산 및 `X` 기각 시 `reuseThreshold` 동적 차순위 재사용 vs 5개 재생성 분기 구현 (`canvasLifecycle.ts`)
-- [ ] **Step 4-5: 개발자 테스트 페이지 개편 (5개 후보·확률 시각화 및 임계치 튜닝)**
-  - [ ] `PipelineDevView.svelte` (`/?view=dev`): 5개 후보 문장 전체와 각 후보 확률/점수 바 그래프 표출, `reuseThreshold` 실시간 슬라이더 및 `X` 기각 재사용 시뮬레이션 연동
-  - [ ] `HandwritingOcrDevView.svelte` (`/?view=handwriting`): OCR 소스 배지(`ko-hand-ocr` vs 폴백) 및 5개 후보 확률 테이블 표출
+  - [x] `apps/web/src/lib/storage/noteDb.ts`: 브라우저 IndexedDB(`itnote_local_db`) 영속 저장·로드 연결
+- [x] **Step 4-4: `ko-hand-ocr` Python 사이드카 & `gemini-decision-1` 판별 엔진 전환 (ONNX 대체)**
+  - [x] `services/ocr/main.py` & `apps/server/src/services/ocrClient.ts`: `jysvai/ko-hand-ocr` Python HTTP 사이드카 및 미실행 시 Gemini 멀티모달 폴백 구현
+  - [x] `apps/server/src/services/neuralJevEngine.ts` & `system1Jev.ts`: Google `gemini-decision-1` 기반 시각 기호 판별 + 5개 후보별 독립 점수/확률(`candidateScores`, `0.00-1.00`) 산출 구현 (기존 `onnxruntime-node` 제거)
+  - [x] `marginBox` 기하학 고정 계산 및 `X` 기각 시 `reuseThreshold` 동적 차순위 재사용 vs 5개 재생성 분기 구현 (`canvasLifecycle.ts`)
+- [x] **Step 4-5: 개발자 테스트 페이지 개편 (5개 후보·확률 시각화 및 임계치 튜닝)**
+  - [x] `PipelineDevView.svelte` (`/?view=dev`): 5개 후보 문장 전체와 각 후보 확률/점수 바 그래프 표출, `reuseThreshold` 실시간 슬라이더 및 `X` 기각 재사용 시뮬레이션 연동
+  - [x] `HandwritingOcrDevView.svelte` (`/?view=handwriting`): OCR 소스 배지(`ko-hand-ocr` vs 폴백) 및 5개 후보 확률 테이블 표출
 - [x] **Step 4-6: Web Crypto API E2EE 엔진 & `/api/sync` 무지식 백엔드 라우트 구축**
   - [x] PBKDF2-HMAC-SHA256 (100,000회 반복) 마스터 키 유도 및 AES-256-GCM 암복호화 단위 테스트 통과 (`cryptoSync.ts`)
   - [x] 평문 파싱 없이 암호문 블롭만 격리 보관하는 `/api/sync/push`, `/api/sync/pull` 및 통합 테스트 통과 (`syncRoute.test.ts`)
-  - [ ] `App.svelte` 및 `DeskView.svelte`: E2EE 마스터 패스프레이즈 UI 추가 및 확정 노트 푸시/풀 실연동
+  - [x] `App.svelte` 및 `DeskView.svelte`: E2EE 마스터 패스프레이즈 UI 추가 및 확정 노트 푸시/풀 실연동
 
 ### 핵심 구현 명세 (Milestone 4 Revised Specifications)
 - **0. 선제적 투기적 추론 파이프라인 (Speculative Pre-Inference Engine)**:

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { ConfirmedNote, AuthSession, UserProfile, RoutineSlot } from '@itnote/shared';
+  import type { ConfirmedNote, AuthSession, UserProfile, RoutineSlot, EncryptedNotePayload } from '@itnote/shared';
   import PaperCanvas from './lib/canvas/PaperCanvas.svelte';
   import DeskView from './lib/archive/DeskView.svelte';
   import LoginView from './lib/auth/LoginView.svelte';
@@ -8,6 +8,13 @@
   import FontTestView from './lib/dev/FontTestView.svelte';
   import PipelineDevView from './lib/dev/PipelineDevView.svelte';
   import HandwritingOcrDevView from './lib/dev/HandwritingOcrDevView.svelte';
+  import {
+    loadConfirmedNotesFromDb,
+    saveConfirmedNoteToDb,
+    mergeConfirmedNotesToDb,
+    getE2eePassphrase,
+  } from './lib/storage/noteDb';
+  import { encryptNoteText, decryptNoteText } from './lib/crypto/cryptoSync';
 
   type ViewType = 'canvas' | 'desk' | 'login' | 'setup' | 'font-test' | 'dev' | 'handwriting';
 
@@ -83,10 +90,65 @@
     }
   }
 
+  async function hydrateConfirmedNotes() {
+    const localNotes = await loadConfirmedNotesFromDb();
+    confirmedNotes = localNotes;
+
+    if (!currentSession) return;
+
+    try {
+      const res = await fetch('/api/notes/confirmed');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.notes) && data.notes.length > 0) {
+          confirmedNotes = await mergeConfirmedNotesToDb(data.notes);
+        }
+      }
+    } catch {}
+
+    const passphrase = getE2eePassphrase();
+    if (passphrase) {
+      try {
+        const syncRes = await fetch('/api/sync/pull');
+        if (syncRes.ok) {
+          const syncData = (await syncRes.json()) as { notes?: EncryptedNotePayload[] };
+          if (Array.isArray(syncData.notes) && syncData.notes.length > 0) {
+            const decryptedNotes: ConfirmedNote[] = [];
+            for (const blob of syncData.notes) {
+              try {
+                const raw = await decryptNoteText(blob, passphrase);
+                const parsed = JSON.parse(raw) as Partial<ConfirmedNote>;
+                decryptedNotes.push({
+                  id: parsed.id || blob.noteId,
+                  sentence: parsed.sentence || raw,
+                  confirmedAt: parsed.confirmedAt || blob.updatedAt,
+                  keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
+                  sourceBBox: parsed.sourceBBox,
+                });
+              } catch {
+                // 패스프레이즈가 다른 기기/이전 키 블롭은 건너뜀
+              }
+            }
+            if (decryptedNotes.length > 0) {
+              confirmedNotes = await mergeConfirmedNotesToDb(decryptedNotes);
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+
   onMount(() => {
-    checkRoute().finally(() => {
-      isAuthChecked = true;
+    loadConfirmedNotesFromDb().then((localNotes) => {
+      if (localNotes.length > 0) {
+        confirmedNotes = localNotes;
+      }
     });
+    checkRoute()
+      .then(() => hydrateConfirmedNotes())
+      .finally(() => {
+        isAuthChecked = true;
+      });
     window.addEventListener('popstate', checkRoute);
     return () => {
       window.removeEventListener('popstate', checkRoute);
@@ -145,9 +207,12 @@
   }
 
   async function handleConfirmedNote(note: ConfirmedNote) {
-    confirmedNotes = [note, ...confirmedNotes];
+    confirmedNotes = [note, ...confirmedNotes.filter((n) => n.id !== note.id)];
 
-    // 백엔드 O 확정 및 profileEnricher 연동
+    // 1. 로컬 IndexedDB 영속 저장
+    await saveConfirmedNoteToDb(note);
+
+    // 2. 백엔드 O 확정 및 profileEnricher 연동
     try {
       await fetch('/api/notes/confirm', {
         method: 'POST',
@@ -155,6 +220,19 @@
         body: JSON.stringify(note),
       });
     } catch {}
+
+    // 3. E2EE 마스터 패스프레이즈 설정 시 암호문 블롭 백그라운드 동기화 푸시
+    const passphrase = getE2eePassphrase();
+    if (passphrase) {
+      try {
+        const encrypted = await encryptNoteText(JSON.stringify(note), passphrase, note.id);
+        await fetch('/api/sync/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notes: [encrypted] }),
+        });
+      } catch {}
+    }
   }
 </script>
 
@@ -181,6 +259,9 @@
       {confirmedNotes}
       onBackToCanvas={handleBackToCanvas}
       onLogout={handleLogout}
+      onNotesSynced={(synced) => {
+        confirmedNotes = synced;
+      }}
     />
   {:else if currentView === 'font-test'}
     <FontTestView />
