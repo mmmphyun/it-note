@@ -76,11 +76,14 @@ inferRoute.post('/', async (c) => {
     // 1. System 1 (Jev/OpenJev 기본 의사결정 및 키워드 추출)
     const system1Output = await runSystem1Jev(body);
 
-    // 2. Generator: 직교 5-Way 후보 가설 문장 풀 생성
+    // 2. Generator: 직교 5-Way 후보 가설 문장 풀 생성 (손글씨 OCR 원문 병합 전달)
     const candidatePool = await generateCandidateHypothesisPool({
       decision: system1Output.decision,
       keywords: system1Output.keywords,
-      request: body,
+      request: {
+        ...body,
+        rawTextInput: body.rawTextInput ?? system1Output.ocrRawText,
+      },
     });
 
     // 3. Discriminator: Neural Jev Reranker가 원문·도메인·맥락 대조 후 최적 1문장 Choice 확정

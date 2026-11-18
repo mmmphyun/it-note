@@ -12,11 +12,11 @@
   import { requestInference, getLastInferError } from '../api/inferClient';
 
   const CANDIDATE_LABELS: Record<CandidateKey, string> = {
-    candidate_project: '프로젝트 관점',
-    candidate_routine: '루틴·일정 관점',
-    candidate_pivot: '피벗·대안 관점',
-    candidate_longterm: '장기 맥락 관점',
-    candidate_definition: '개념·요약 관점',
+    candidate_project: '핵심 의도·행동 관점',
+    candidate_routine: '일상·상황 맥락 관점',
+    candidate_pivot: '선택·변경 이유 관점',
+    candidate_longterm: '취향·연속 맥락 관점',
+    candidate_definition: '세부 조건·내역 관점',
   };
 
   function getSortedCandidates(

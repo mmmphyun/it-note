@@ -24,6 +24,39 @@ export interface System1Output {
   ocrRawText?: string;
 }
 
+function isTransientServiceUnavailable(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
+}
+
+/**
+ * 업스트림 Gemini 503 일시 과부하 시 단기 재시도 및 동일 API 키의 안정 모델 전환 래퍼
+ */
+export async function generateContentWithTransientRetry(
+  ai: GoogleGenAI,
+  params: Parameters<GoogleGenAI['models']['generateContent']>[0]
+) {
+  try {
+    return await ai.models.generateContent(params);
+  } catch (err1) {
+    if (!isTransientServiceUnavailable(err1)) {
+      throw err1;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    try {
+      return await ai.models.generateContent(params);
+    } catch (err2) {
+      if (!isTransientServiceUnavailable(err2)) {
+        throw err2;
+      }
+      return ai.models.generateContent({
+        ...params,
+        model: 'gemini-2.5-flash',
+      });
+    }
+  }
+}
+
 /**
  * 여백 가설 문장 바운딩 박스를 필기 bbox 기준 기하학 수식으로 결정론적 계산
  */
@@ -36,6 +69,23 @@ export function calculateDeterministicMarginBox(
   const marginMaxX = Math.min(2350, marginMinX + 440);
   const marginMaxY = marginMinY + 105;
   return [marginMinX, marginMinY, marginMaxX, marginMaxY];
+}
+
+function deriveOcrTextFromKeywords(keywords: ExtractedKeywords): string | undefined {
+  const parts: string[] = [];
+  if (keywords.struckOut.length > 0) {
+    parts.push(keywords.struckOut.map((k) => `~~${k}~~`).join(', '));
+  }
+  if (keywords.active.length > 0) {
+    parts.push(keywords.active.join(', '));
+  }
+  if (keywords.chosen && keywords.chosen.length > 0) {
+    const extraChosen = keywords.chosen.filter((k) => !keywords.active.includes(k));
+    if (extraChosen.length > 0) {
+      parts.push(`선택(${extraChosen.join(', ')})`);
+    }
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
 }
 
 /**
@@ -77,6 +127,8 @@ export async function runSystem1Jev(request: InferRequestBody): Promise<System1O
   if (jevApiKey && jevEndpoint) {
     try {
       const jevRes = await callJevEndpoint(enrichedRequest, jevEndpoint, jevApiKey);
+      const resolvedOcrText =
+        ocrRawText ?? (ocrSource === 'gemini-multimodal' ? deriveOcrTextFromKeywords(jevRes.keywords) : undefined);
       return {
         ...jevRes,
         decision: {
@@ -87,7 +139,7 @@ export async function runSystem1Jev(request: InferRequestBody): Promise<System1O
           },
         },
         ocrSource,
-        ocrRawText,
+        ocrRawText: resolvedOcrText,
       };
     } catch (err) {
       if (!ai) {
@@ -100,6 +152,8 @@ export async function runSystem1Jev(request: InferRequestBody): Promise<System1O
 
   if (ai) {
     const gemRes = await callGeminiStructuredJev(enrichedRequest, ai);
+    const resolvedOcrText =
+      ocrRawText ?? (ocrSource === 'gemini-multimodal' ? deriveOcrTextFromKeywords(gemRes.keywords) : undefined);
     return {
       ...gemRes,
       decision: {
@@ -110,7 +164,7 @@ export async function runSystem1Jev(request: InferRequestBody): Promise<System1O
         },
       },
       ocrSource,
-      ocrRawText,
+      ocrRawText: resolvedOcrText,
     };
   }
 
@@ -214,7 +268,7 @@ Action Tasks (Determine the user's primary human action):
     });
   }
 
-  const response = await ai.models.generateContent({
+  const response = await generateContentWithTransientRetry(ai, {
     model: 'gemini-3.5-flash-lite',
     contents,
     config: {

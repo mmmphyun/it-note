@@ -14,7 +14,7 @@ export type OcrFetcher = (
   body: string
 ) => Promise<{ text: string; latencyMs?: number } | null>;
 
-const OCR_TIMEOUT_MS = 2000;
+const OCR_TIMEOUT_MS = 12000;
 let customOcrFetcher: OcrFetcher | null = null;
 
 /**

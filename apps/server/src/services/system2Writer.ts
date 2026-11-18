@@ -6,6 +6,7 @@ import type {
 } from '@itnote/shared';
 import type { GoogleGenAI } from '@google/genai';
 import { getGeminiClient } from './geminiClient';
+import { generateContentWithTransientRetry } from './system1Jev';
 
 // ponytail: single hypothesis synthesizer with official @google/genai SDK
 
@@ -53,10 +54,18 @@ export async function generateCandidateHypothesisPool(params: System2Params): Pr
   }
 
   const rejectedList = request.rejectedHypotheses ?? [];
-  const rejectedPrompt =
-    rejectedList.length > 0
-      ? `\nRejected Hypotheses (NEVER repeat or paraphrase these):\n${rejectedList.map((r) => `- "${r}"`).join('\n')}`
-      : '';
+  const hasRejections = rejectedList.length > 0;
+  const rejectedPrompt = hasRejections
+    ? `\nRejected Hypotheses (DO NOT REPEAT OR MERELY PARAPHRASE THESE):\n${rejectedList.map((r) => `- "${r}"`).join('\n')}
+
+HYPOTHESIS PIVOT DIRECTIVE (CRITICAL FOR REGENERATION):
+- Keep generating across all 5 perspective axes above (a user may still want the right perspective with a different concrete hypothesis).
+- However, every rejected sentence above failed because its UNDERLYING SITUATION/PURPOSE ASSUMPTION was wrong for the user.
+- FORBIDDEN: Do NOT just swap verbs/endings or make poetic paraphrases of rejected sentences (e.g., "주문하시는 건가요?" -> "마셔볼 예정이신 건가요?", "바꾸신 건가요?" -> "마음이 기우신 건가요?", "오른 게 맞나요?" -> "책정된 게 맞나요?").
+- REQUIRED: Inside each perspective, PIVOT to a COMPLETELY DIFFERENT concrete real-world scenario/reason that still fits the raw memo:
+  * If prior guesses assumed personal instant consumption/order -> pivot to expense/bookkeeping log, buying for a colleague/friend (심부름/주문 취합), receipt verification, price comparison, or menu note-taking.
+  * If prior guesses assumed a simple whim or price hike -> pivot to price-difference check (+500원), caffeine/sweetness/allergy avoidance, sold-out fallback, or budget adjustment.`
+    : '';
   const personaRole = request.userContext?.persona?.role ?? '일반 사용자';
   const actionTask = decision.actionTask?.selected ?? 'ITEM_ACCUMULATE';
 
@@ -73,21 +82,21 @@ Never output markdown blocks or conversational text. Return valid JSON only:
   "candidate_definition": "..."
 }
 
-CRITICAL NATURALNESS & DOMAIN RULES (ZERO TOLERANCE FOR ROBOTIC TONE):
+CRITICAL NATURALNESS, DOMAIN & PAIR RULES (ZERO TOLERANCE FOR ROBOTIC TONE):
 1. NEVER use robotic database/record-keeping phrasing such as "데이터 단위", "기록 항목", "수정하는 것이 맞나요?", "입력하신 내용", "소비 비용과 선호 메뉴를 기록하는".
-2. Infer the REAL-WORLD HUMAN ACTION (ordering coffee/food, choosing a tech stack, adjusting a price/time, planning a workflow).
-3. DOMAIN PRECEDENCE OVER PERSONA:
+2. Infer REAL-WORLD HUMAN INTENT (buying/ordering, expense logging, running errands for others, comparing options, architectural planning).
+3. PAIRED STRIKETHROUGH RULE (IMPORTANT): When BOTH an item/menu AND a price/numeric value are crossed out and replaced (e.g. "~~초코라떼~~ 얼그레이 밀크티, ~~4000원~~ 4500원"), interpret the new number as the price/spec of the NEW replacement item (or cost difference between old and new items) — NEVER misinterpret it as a price hike on the same item!
+4. DOMAIN PRECEDENCE OVER PERSONA:
    - The user's registered role is "${personaRole}".
-   - However, if Inferred Domain is ROUTINE_TASK or GENERAL_IDEA (e.g. cafe order, drinks, food, errands, prices), NEVER force coding, architecture, DevSecOps, or data-modeling terms into ANY of the 5 candidates.
-   - Frame all 5 candidates naturally within the ACTUAL domain of the note!
-4. Keep each sentence concise and natural (around 15-35 Korean characters where possible).
+   - However, if Inferred Domain is ROUTINE_TASK or GENERAL_IDEA (e.g. cafe drinks, food, errands, prices), NEVER force coding, architecture, DevSecOps, or data-modeling terms into ANY of the 5 candidates.
+5. Keep each sentence concise and natural (around 15-38 Korean characters where possible).
 
-5 Orthogonal Angles (Adapt every angle strictly to the note's real domain):
-1. candidate_project: Primary real-world intent/action (e.g. if cafe: ordering/changing menu & cafe choice; if dev: main implementation/architecture plan).
-2. candidate_routine: Daily schedule/habit/timing angle (e.g. ordering for today's coffee break or fitting into today's routine).
-3. candidate_pivot: Contrast/change angle focusing on why "${struckOutKw || 'prior choice'}" was dropped/crossed out in favor of "${activeKw}" (or price/option adjustment).
-4. candidate_longterm: Continuity angle connecting to previous context (${prevContext || 'none'}) or recent notes (${recentNotes.slice(-2).join(' / ') || 'none'}).
-5. candidate_definition: Specific option/detail confirmation (e.g. confirming exact price, store name, menu option, or core concept summary in plain human words).
+5 Domain-Neutral Perspectives (Adapt strictly to the note's real domain and vary concrete situations when rejections exist):
+1. candidate_project (핵심 의도·행동): The primary real-world purpose/action behind writing this note (e.g., ordering/buying, logging an expense/settlement, noting someone else's request, executing a project task).
+2. candidate_routine (일상·상황 맥락): Concrete situational/timing/social context around the memo (e.g., break/meal context, gathering orders with companions, pre-visit price check, daily work routine).
+3. candidate_pivot (선택·변경 이유): Why "${struckOutKw || 'prior choice'}" was dropped/crossed out in favor of "${activeKw}" (e.g., taste/caffeine/allergy constraint, +cost tradeoff, out-of-stock switch, technical bottleneck).
+4. candidate_longterm (취향·연속 맥락): Connection to confirmed previous context (${prevContext || 'none'}), recurring personal preference/habit, or recent confirmed notes (${recentNotes.slice(-2).join(' / ') || 'none'}).
+5. candidate_definition (세부 조건·내역): Exact verification of final item, store, specification, or old-vs-new cost difference matching the active choice (apply Paired Strikethrough Rule!).
 
 Context:
 - Raw Input: ${request.rawTextInput ?? 'none'}
@@ -99,12 +108,12 @@ Context:
 ${rejectedPrompt}
 `;
 
-  const response = await ai.models.generateContent({
+  const response = await generateContentWithTransientRetry(ai, {
     model: 'gemini-3.5-flash-lite',
     contents: prompt,
     config: {
       maxOutputTokens: 700,
-      temperature: 0.4,
+      temperature: hasRejections ? 0.65 : 0.4,
       responseMimeType: 'application/json',
     },
   });
@@ -219,7 +228,7 @@ Specific Chosen & Feedback Handling:
   Pivot completely away from the rejected hypothesis.
 ${negativeConstraintPrompt}`;
 
-  const response = await ai.models.generateContent({
+  const response = await generateContentWithTransientRetry(ai, {
     model: 'gemini-3.5-flash-lite',
     contents: systemInstruction,
     config: {

@@ -10,13 +10,12 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8787"
-      OCR_ENDPOINT_URL: "${OCR_ENDPOINT_URL:-http://ocr:8090/ocr}"
+      OCR_ENDPOINT_URL: "http://ocr:8090/ocr"
     restart: unless-stopped
 
   ocr:
     build: ./services/ocr
     container_name: itnote-demo-ocr
-    profiles: ["ocr"]
     ports:
       - "8090:8090"
     restart: unless-stopped

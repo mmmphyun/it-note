@@ -1,15 +1,26 @@
 """한국어 손글씨 인식(jysvai/ko-hand-ocr) 전용 Python HTTP 사이드카 서버."""
 
 import base64
+from contextlib import asynccontextmanager
+import io
 import time
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
+from PIL import Image
 from pydantic import BaseModel
 
-app = FastAPI(title="It!note ko-hand-ocr Sidecar", version="0.1.0")
-
 _reader: Optional[object] = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """컨테이너 기동 시 ko-hand-ocr 가중치를 메모리에 사전 적재한다."""
+    _get_reader()
+    yield
+
+
+app = FastAPI(title="It!note ko-hand-ocr Sidecar", version="0.1.0", lifespan=lifespan)
 
 
 class OcrRequest(BaseModel):
@@ -61,6 +72,11 @@ def recognize_handwriting(req: OcrRequest) -> OcrResponse:
         reader = _get_reader()
         result = reader.read_photo(image_bytes)
         text = result if isinstance(result, str) else " ".join(map(str, result))
+        if not text.strip():
+            # 단일 행 크롭 캔버스 이미지는 줄 분리(page.lines)에서 누락될 수 있어 직접 1행 추론으로 폴백한다.
+            single_img = Image.open(io.BytesIO(image_bytes)).convert("L")
+            direct_res = reader.read([single_img])
+            text = direct_res if isinstance(direct_res, str) else " ".join(map(str, direct_res))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"OCR inference failed: {exc}") from exc
 

@@ -6,7 +6,7 @@ import type {
   JevRerankerResult,
 } from '@itnote/shared';
 import { getGeminiClient } from './geminiClient.js';
-import { runJevReranker } from './system1Jev.js';
+import { generateContentWithTransientRetry, runJevReranker } from './system1Jev.js';
 
 export type DecisionQuestionType = 'noul' | 'choice' | 'score';
 
@@ -69,7 +69,7 @@ export function buildDecisionQuestions(
     questions[key] = {
       type: 'noul',
       instructions:
-        `Evaluate against user memo context (${contextStr}). Score TRUE (0.70-0.95) if the Korean question sounds like a natural human companion reflecting the note's real domain and strikethrough/choice intent without repeating rejected sentences. Score FALSE (0.05-0.25) if it uses robotic DB phrasing ("데이터 단위", "기록 항목") or forces unrelated job/tech jargon onto an everyday note. Candidate: "${candidates[key]}"`,
+        `Evaluate against user memo context (${contextStr}). Score TRUE (0.75-0.95) if the Korean question sounds like a natural human companion reflecting the note's real domain and introduces a genuinely fresh situational hypothesis rather than repeating or merely paraphrasing any rejected sentence in 기각이력. Score FALSE (0.05-0.25) if it uses robotic DB phrasing ("데이터 단위", "기록 항목"), forces unrelated tech jargon onto an everyday note, misinterprets a menu change price as a price hike, or only swaps word endings of a rejected sentence. Candidate: "${candidates[key]}"`,
     };
   }
   return questions;
@@ -153,9 +153,9 @@ async function callGeminiDecisionsApi(
 
     const scorePrompt = `Evaluate each of the 5 Korean hypothesis candidates against the user's memo context and return an independent probability score between 0.00 and 1.00 for each key in JSON format only.
 Scoring Rubric:
-- 0.75-0.95: Sounds like a warm, natural human question accurately reflecting the raw note, domain, and strikethrough/choice intent.
-- 0.40-0.65: Acceptable alternative angle within the right domain, not repeating rejected hypotheses.
-- 0.05-0.25: Robotic/database phrasing ("데이터 단위", "기록하는", "수정"), repeats rejected ideas, or forces unrelated tech/job jargon onto an everyday note.
+- 0.75-0.95: Sounds like a warm, natural human question accurately reflecting the raw note, domain, paired strikethrough meaning, AND proposing a genuinely fresh real-world situational premise compared to any rejected history.
+- 0.40-0.65: Acceptable alternative angle within the right domain that is reasonably distinct from rejected hypotheses.
+- 0.05-0.30: Robotic/database phrasing ("데이터 단위", "기록하는", "수정"), forces unrelated tech/job jargon onto an everyday note, misreads a menu change as a price hike, OR merely paraphrases/swaps word endings of a sentence in 기각이력.
 
 Context: ${req.input}
 Questions:
@@ -163,7 +163,7 @@ ${Object.entries(req.questions)
   .map(([k, q]) => `- ${k}: ${q.instructions}`)
   .join('\n')}`;
 
-    const llmRes = await fallbackClient.models.generateContent({
+    const llmRes = await generateContentWithTransientRetry(fallbackClient, {
       model: 'gemini-3.5-flash-lite',
       contents: scorePrompt,
       config: {
@@ -299,11 +299,11 @@ export async function runNeuralJevReranker(input: JevRerankerInput): Promise<Jev
   }
 
   const reasonMap: Record<CandidateKey, string> = {
-    candidate_project: 'gemini-decision-1 판별: 프로젝트 및 작업 목표 정합도 최상위 판정',
-    candidate_routine: 'gemini-decision-1 판별: 현재 시간대 루틴 수행 과제 적합 판정',
-    candidate_pivot: 'gemini-decision-1 판별: 기각 이력 및 취소선 의도 반영 최적 대안 판정',
-    candidate_longterm: 'gemini-decision-1 판별: 과거 확정 노트와의 의미적 연관성 최상위 판정',
-    candidate_definition: 'gemini-decision-1 판별: 개념 정의 및 핵심 요약 일치도 최상위 판정',
+    candidate_project: 'gemini-decision-1 판별: 핵심 의도 및 행동 목적 정합도 최상위 판정',
+    candidate_routine: 'gemini-decision-1 판별: 일상·상황 맥락 적합도 최상위 판정',
+    candidate_pivot: 'gemini-decision-1 판별: 기각 이력 및 선택·변경 이유 반영 최적 대안 판정',
+    candidate_longterm: 'gemini-decision-1 판별: 취향·연속 맥락 및 과거 노트 연관성 최상위 판정',
+    candidate_definition: 'gemini-decision-1 판별: 세부 조건·내역 정확도 최상위 판정',
   };
 
   return {

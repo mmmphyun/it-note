@@ -9,11 +9,11 @@
   import { requestInference, getLastInferError } from '../api/inferClient';
 
   const CANDIDATE_LABELS: Record<CandidateKey, string> = {
-    candidate_project: '프로젝트 관점',
-    candidate_routine: '루틴·일정 관점',
-    candidate_pivot: '피벗·대안 관점',
-    candidate_longterm: '장기 맥락 관점',
-    candidate_definition: '개념·요약 관점',
+    candidate_project: '핵심 의도·행동 관점',
+    candidate_routine: '일상·상황 맥락 관점',
+    candidate_pivot: '선택·변경 이유 관점',
+    candidate_longterm: '취향·연속 맥락 관점',
+    candidate_definition: '세부 조건·내역 관점',
   };
 
   interface RankedCandidateItem {
@@ -128,8 +128,7 @@
         ...history,
       ];
 
-      // 다음 턴을 위한 맥락 및 5-Way 후보 풀 갱신
-      previousContext = res.sentence;
+      // 다음 턴을 위한 5-Way 후보 풀 갱신 (미확정 가설은 직전 증발 맥락으로 승격하지 않음)
       activeHypothesis = res.sentence;
       activeCandidatePool = res.candidatePool ?? null;
       activeCandidateScores = res.rerankerResult?.candidateScores ?? null;
@@ -146,7 +145,19 @@
 
   async function handleSend() {
     reuseActionLog = null;
+    rejectedHypotheses = [];
     await runInferenceWithText(rawInput, true);
+  }
+
+  function handleConfirmCurrent() {
+    if (!activeHypothesis) return;
+    previousContext = activeHypothesis;
+    reuseActionLog = `[O 마킹 확정] "${activeHypothesis}" 문장을 직전 증발 맥락으로 승격했습니다.`;
+    activeHypothesis = null;
+    activeCandidatePool = null;
+    activeCandidateScores = null;
+    activeSelectedKey = null;
+    rejectedHypotheses = [];
   }
 
   async function handleRejectCurrent() {
@@ -163,7 +174,6 @@
     if (runnerUp && runnerUp.score >= reuseThreshold) {
       activeHypothesis = runnerUp.sentence;
       activeSelectedKey = runnerUp.key;
-      previousContext = runnerUp.sentence;
       reuseActionLog = `[0ms 차순위 재사용 발동] "${runnerUp.label}" 점수 ${(runnerUp.score * 100).toFixed(0)}% >= 임계치 ${(reuseThreshold * 100).toFixed(0)}% (서버 재호출 없음)`;
       return;
     }
@@ -286,6 +296,7 @@
             {#if activeSelectedKey}
               <span class="active-axis-tag">{CANDIDATE_LABELS[activeSelectedKey]}</span>
             {/if}
+            <button class="btn-confirm" onclick={handleConfirmCurrent}>O 마킹 (확정 -&gt; 직전 맥락)</button>
             <button class="btn-reject" onclick={handleRejectCurrent}>X 마킹 (임계치 기반 재사용/재생성)</button>
           </div>
         {/if}
@@ -700,6 +711,17 @@
   .context-item .v.highlight {
     color: #2563eb;
     font-weight: 600;
+  }
+
+  .btn-confirm {
+    margin-left: 8px;
+    padding: 2px 8px;
+    background: #16a34a;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
   }
 
   .btn-reject {
