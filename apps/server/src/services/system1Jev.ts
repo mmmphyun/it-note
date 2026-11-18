@@ -30,7 +30,7 @@ function isTransientServiceUnavailable(err: unknown): boolean {
 }
 
 /**
- * 업스트림 Gemini 503 일시 과부하 시 단기 재시도 및 동일 API 키의 안정 모델 전환 래퍼
+ * 업스트림 Gemini 503 일시 과부하 시 최신 모델(gemini-4-hydrogen -> gemini-3.1-flash-lite) 순차 전환 재시도 래퍼
  */
 export async function generateContentWithTransientRetry(
   ai: GoogleGenAI,
@@ -42,16 +42,20 @@ export async function generateContentWithTransientRetry(
     if (!isTransientServiceUnavailable(err1)) {
       throw err1;
     }
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await new Promise((resolve) => setTimeout(resolve, 400));
     try {
-      return await ai.models.generateContent(params);
+      return await ai.models.generateContent({
+        ...params,
+        model: 'gemini-4-hydrogen',
+      });
     } catch (err2) {
       if (!isTransientServiceUnavailable(err2)) {
         throw err2;
       }
+      await new Promise((resolve) => setTimeout(resolve, 400));
       return ai.models.generateContent({
         ...params,
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.1-flash-lite',
       });
     }
   }
