@@ -31,12 +31,34 @@ export async function generateCandidateHypothesisPool(params: System2Params): Pr
   const recentNotes = request.userContext?.recentConfirmedNotes ?? [];
   const domain = decision.domainRoute.selected;
 
-  // 테스트 환경이거나 Gemini 클라이언트 미설정 시 휴리스틱 5-Way 생성
-  const ai = process.env.NODE_ENV === 'test' ? null : getGeminiClient();
+  // 테스트 환경일 때만 결정론적 휴리스틱 5-Way 생성 허용
+  if (process.env.NODE_ENV === 'test') {
+    const baseSentence = runHeuristicSystem2(params);
+    return {
+      candidate_project: `${activeKw} 기반으로 프로젝트 아키텍처를 최적화하려는 구상 맞나요?`,
+      candidate_routine: `${activeKw} 작업을 오늘 일정 루틴에 맞춰 진행하시려는 계획인가요?`,
+      candidate_pivot: struckOutKw
+        ? `${struckOutKw} 대신 ${activeKw}(으)로 방향을 전환하려는 결정인가요?`
+        : `${activeKw} 대신 다른 대안을 배제하고 단일 파이프라인으로 확정하려는 의도인가요?`,
+      candidate_longterm: prevContext
+        ? `직전에 메모한 "${prevContext}" 흐름에 이어 ${activeKw}를 결합하려는 생각 맞나요?`
+        : `${activeKw} 노트를 과거 작업 히스토리와 연결하여 기록하려는 내용인가요?`,
+      candidate_definition: baseSentence,
+    };
+  }
 
-  if (ai) {
-    try {
-      const prompt = `You are the Hypothesis Generator of 'It!note'.
+  const ai = getGeminiClient();
+  if (!ai) {
+    throw new Error('AI API 키(GEMINI_API_KEY)가 연결되지 않았습니다.');
+  }
+
+  const rejectedList = request.rejectedHypotheses ?? [];
+  const rejectedPrompt =
+    rejectedList.length > 0
+      ? `\nRejected Hypotheses (NEVER repeat or paraphrase these):\n${rejectedList.map((r) => `- "${r}"`).join('\n')}`
+      : '';
+
+  const prompt = `You are the Hypothesis Generator of 'It!note'.
 Generate a JSON object containing EXACTLY 5 orthogonal Korean hypothesis sentences for the user's handwritten note.
 Each sentence must be a complete question ending with '~맞나요?' or '~인가요?'.
 Never output markdown blocks or conversational text. Return valid JSON only:
@@ -58,48 +80,33 @@ Rules:
 
 Active Keywords: ${activeKw}
 Struck-out Keywords: ${struckOutKw || 'none'}
+Chosen (Circled): ${(keywords.chosen ?? []).join(', ') || 'none'}
 Inferred Domain: ${domain}
+${rejectedPrompt}
 `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash-lite',
-        contents: prompt,
-        config: {
-          maxOutputTokens: 600,
-          temperature: 0.4,
-          responseMimeType: 'application/json'
-        }
-      });
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.5-flash-lite',
+    contents: prompt,
+    config: {
+      maxOutputTokens: 700,
+      temperature: 0.4,
+      responseMimeType: 'application/json',
+    },
+  });
 
-      const parsed = JSON.parse(response.text?.trim() ?? '{}');
-      if (
-        parsed.candidate_project &&
-        parsed.candidate_routine &&
-        parsed.candidate_pivot &&
-        parsed.candidate_longterm &&
-        parsed.candidate_definition
-      ) {
-        return parsed as CandidateHypothesisPool;
-      }
-    } catch {
-      // JSON 파싱 실패 또는 API 오류 시 아래 휴리스틱으로 폴백
-    }
+  const parsed = JSON.parse(response.text?.trim() ?? '{}');
+  if (
+    parsed.candidate_project &&
+    parsed.candidate_routine &&
+    parsed.candidate_pivot &&
+    parsed.candidate_longterm &&
+    parsed.candidate_definition
+  ) {
+    return parsed as CandidateHypothesisPool;
   }
 
-  // 결정론적 5-Way 직교 후보 합성 폴백
-  const baseSentence = runHeuristicSystem2(params);
-
-  return {
-    candidate_project: `${activeKw} 기반으로 프로젝트 아키텍처를 최적화하려는 구상 맞나요?`,
-    candidate_routine: `${activeKw} 작업을 오늘 일정 루틴에 맞춰 진행하시려는 계획인가요?`,
-    candidate_pivot: struckOutKw
-      ? `${struckOutKw} 대신 ${activeKw}(으)로 방향을 전환하려는 결정인가요?`
-      : `${activeKw} 대신 다른 대안을 배제하고 단일 파이프라인으로 확정하려는 의도인가요?`,
-    candidate_longterm: prevContext
-      ? `직전에 메모한 "${prevContext}" 흐름에 이어 ${activeKw}를 결합하려는 생각 맞나요?`
-      : `${activeKw} 노트를 과거 작업 히스토리와 연결하여 기록하려는 내용인가요?`,
-    candidate_definition: baseSentence
-  };
+  throw new Error('Gemini 5-Way 후보 문장 생성 응답 형식이 올바르지 않습니다.');
 }
 
 /**
@@ -113,17 +120,11 @@ export async function runSystem2Writer(params: System2Params): Promise<string> {
   }
 
   const ai = getGeminiClient();
-
-  if (ai) {
-    try {
-      return await callGeminiWriter(params, ai);
-    } catch (err) {
-      console.error('[System 2 Writer Error]', err instanceof Error ? err.message : err);
-      // Gemini 호출 실패 시 규칙 기반 템플릿으로 안전 폴백
-    }
+  if (!ai) {
+    throw new Error('AI API 키(GEMINI_API_KEY)가 연결되지 않았습니다.');
   }
 
-  return runHeuristicSystem2(params);
+  return callGeminiWriter(params, ai);
 }
 
 /**

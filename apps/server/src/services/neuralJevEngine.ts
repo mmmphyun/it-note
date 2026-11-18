@@ -1,9 +1,11 @@
+import { GoogleGenAI, type Decisions } from '@google/genai';
 import type {
   CandidateHypothesisPool,
   CandidateKey,
   JevRerankerInput,
   JevRerankerResult,
 } from '@itnote/shared';
+import { getGeminiClient } from './geminiClient.js';
 import { runJevReranker } from './system1Jev.js';
 
 export type DecisionQuestionType = 'noul' | 'choice' | 'score';
@@ -41,9 +43,6 @@ const CANDIDATE_KEYS: CandidateKey[] = [
   'candidate_longterm',
   'candidate_definition',
 ];
-
-const DECISIONS_API_URL = 'https://generativelanguage.googleapis.com/v1beta/decisions';
-const DECISIONS_TIMEOUT_MS = 3000;
 
 let customEvaluator: DecisionEvaluatorFn | null = null;
 let engineInitialized = false;
@@ -105,26 +104,88 @@ async function callGeminiDecisionsApi(
   req: DecisionsApiRequest,
   apiKey: string
 ): Promise<DecisionsApiResponse> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DECISIONS_TIMEOUT_MS);
+  const aiV1Beta = new GoogleGenAI({ apiKey, apiVersion: 'v1beta' });
+  const sdkQuestions: Record<string, Decisions.NoulQuestion> = {};
+  for (const [k, q] of Object.entries(req.questions)) {
+    sdkQuestions[k] = {
+      type: 'noul',
+      instructions: q.instructions,
+    };
+  }
 
   try {
-    const res = await fetch(DECISIONS_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify(req),
-      signal: controller.signal,
+    const sdkRes = await aiV1Beta.decisions.create({
+      model: req.model,
+      input: req.input,
+      questions: sdkQuestions,
     });
 
-    if (!res.ok) {
-      throw new Error(`Decisions API returned HTTP ${res.status}`);
+    const mappedAnswers: Record<string, DecisionAnswer> = {};
+    if (sdkRes.answers) {
+      for (const [k, ans] of Object.entries(sdkRes.answers)) {
+        if (ans.type === 'noul') {
+          mappedAnswers[k] = {
+            type: 'noul',
+            noul: ans.noul,
+            confidence: ans.confidence,
+          };
+        } else if (ans.type === 'score') {
+          mappedAnswers[k] = {
+            type: 'score',
+            score: ans.score,
+            confidence: ans.confidence,
+          };
+        } else {
+          mappedAnswers[k] = {
+            type: 'choice',
+            confidence: ans.confidence,
+          };
+        }
+      }
     }
-    return (await res.json()) as DecisionsApiResponse;
-  } finally {
-    clearTimeout(timer);
+    return { answers: mappedAnswers };
+  } catch (decisionErr) {
+    // gemini-decision-1 엔드포인트 권한/미지원 시 동일 API 키의 Gemini LLM 채점으로 대체 (하드코딩 폴백 없음)
+    const fallbackClient = getGeminiClient();
+    if (!fallbackClient) {
+      throw decisionErr;
+    }
+
+    const scorePrompt = `Evaluate each of the 5 Korean hypothesis candidates against the user context and return an independent probability score between 0.00 and 1.00 for each key in JSON format only.
+Context: ${req.input}
+Questions:
+${Object.entries(req.questions)
+  .map(([k, q]) => `- ${k}: ${q.instructions}`)
+  .join('\n')}`;
+
+    const llmRes = await fallbackClient.models.generateContent({
+      model: 'gemini-3.5-flash-lite',
+      contents: scorePrompt,
+      config: {
+        responseMimeType: 'application/json',
+        maxOutputTokens: 300,
+        temperature: 0.1,
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            candidate_project: { type: 'NUMBER' },
+            candidate_routine: { type: 'NUMBER' },
+            candidate_pivot: { type: 'NUMBER' },
+            candidate_longterm: { type: 'NUMBER' },
+            candidate_definition: { type: 'NUMBER' },
+          },
+          required: CANDIDATE_KEYS,
+        },
+      },
+    });
+
+    const parsed = JSON.parse(llmRes.text?.trim() ?? '{}') as Record<string, number>;
+    const answers: Record<string, DecisionAnswer> = {};
+    for (const k of CANDIDATE_KEYS) {
+      const val = typeof parsed[k] === 'number' ? parsed[k] : 0.5;
+      answers[k] = { type: 'noul', noul: val, confidence: val };
+    }
+    return { answers };
   }
 }
 
@@ -134,12 +195,14 @@ async function callGeminiDecisionsApi(
  */
 export async function runNeuralJevReranker(input: JevRerankerInput): Promise<JevRerankerResult> {
   const { candidates, userContext } = input;
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  const shouldInvokeApi =
-    customEvaluator !== null || (process.env.NODE_ENV !== 'test' && Boolean(apiKey));
+  const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)?.trim();
 
-  if (!shouldInvokeApi) {
+  if (process.env.NODE_ENV === 'test' && customEvaluator === null) {
     return runJevReranker(input);
+  }
+
+  if (customEvaluator === null && !apiKey) {
+    throw new Error('AI API 키(GEMINI_API_KEY)가 연결되지 않았습니다.');
   }
 
   const contextSegments: string[] = [];
@@ -165,69 +228,64 @@ export async function runNeuralJevReranker(input: JevRerankerInput): Promise<Jev
     questions: buildDecisionQuestions(candidates, contextStr),
   };
 
-  try {
-    const response = customEvaluator
-      ? await customEvaluator(req)
-      : await callGeminiDecisionsApi(req, apiKey!);
+  const response = customEvaluator
+    ? await customEvaluator(req)
+    : await callGeminiDecisionsApi(req, apiKey!);
 
-    const answers = response.answers ?? {};
-    const rawScores = {} as Record<CandidateKey, number>;
+  const answers = response.answers ?? {};
+  const rawScores = {} as Record<CandidateKey, number>;
 
-    for (const key of CANDIDATE_KEYS) {
-      const ans = answers[key];
-      const base =
-        typeof ans?.noul === 'number'
-          ? ans.noul
-          : typeof ans?.score === 'number'
-            ? ans.score
-            : typeof ans?.confidence === 'number'
-              ? ans.confidence
-              : 0.5;
-      rawScores[key] = base;
-    }
-
-    // 사용자 맥락 신호 보정 (과도한 쏠림 없이 독립 점수 스케일 유지)
-    if (userContext.rejectedHistory && userContext.rejectedHistory.length > 0) {
-      rawScores.candidate_pivot += 0.18;
-    }
-    if (userContext.linkedContexts && userContext.linkedContexts.length > 0) {
-      rawScores.candidate_longterm += userContext.linkedContexts[0].similarity * 0.15;
-    }
-    if (userContext.currentRoutine) {
-      rawScores.candidate_routine += 0.12;
-    }
-
-    const candidateScores = {} as Record<CandidateKey, number>;
-    let bestKey: CandidateKey = 'candidate_project';
-    let maxScore = -1;
-
-    for (const key of CANDIDATE_KEYS) {
-      const normalized = Math.max(0, Math.min(1, Math.round(rawScores[key] * 100) / 100));
-      candidateScores[key] = normalized;
-      if (normalized > maxScore) {
-        maxScore = normalized;
-        bestKey = key;
-      }
-    }
-
-    const reasonMap: Record<CandidateKey, string> = {
-      candidate_project: 'gemini-decision-1 판별: 프로젝트 및 작업 목표 정합도 최상위 판정',
-      candidate_routine: 'gemini-decision-1 판별: 현재 시간대 루틴 수행 과제 적합 판정',
-      candidate_pivot: 'gemini-decision-1 판별: 기각 이력 및 취소선 의도 반영 최적 대안 판정',
-      candidate_longterm: 'gemini-decision-1 판별: 과거 확정 노트와의 의미적 연관성 최상위 판정',
-      candidate_definition: 'gemini-decision-1 판별: 개념 정의 및 핵심 요약 일치도 최상위 판정',
-    };
-
-    return {
-      selectedKey: bestKey,
-      winningSentence: candidates[bestKey],
-      confidenceScore: maxScore,
-      reasonNoul: reasonMap[bestKey],
-      candidateScores,
-      scoringEngine: 'gemini-decision-1',
-    };
-  } catch (err) {
-    console.warn('[neuralJevEngine] gemini-decision-1 failed, falling back to heuristic:', err);
-    return runJevReranker(input);
+  for (const key of CANDIDATE_KEYS) {
+    const ans = answers[key];
+    const base =
+      typeof ans?.noul === 'number'
+        ? ans.noul
+        : typeof ans?.score === 'number'
+          ? ans.score
+          : typeof ans?.confidence === 'number'
+            ? ans.confidence
+            : 0.5;
+    rawScores[key] = base;
   }
+
+  // 사용자 맥락 신호 보정 (과도한 쏠림 없이 독립 점수 스케일 유지)
+  if (userContext.rejectedHistory && userContext.rejectedHistory.length > 0) {
+    rawScores.candidate_pivot += 0.18;
+  }
+  if (userContext.linkedContexts && userContext.linkedContexts.length > 0) {
+    rawScores.candidate_longterm += userContext.linkedContexts[0].similarity * 0.15;
+  }
+  if (userContext.currentRoutine) {
+    rawScores.candidate_routine += 0.12;
+  }
+
+  const candidateScores = {} as Record<CandidateKey, number>;
+  let bestKey: CandidateKey = 'candidate_project';
+  let maxScore = -1;
+
+  for (const key of CANDIDATE_KEYS) {
+    const normalized = Math.max(0, Math.min(1, Math.round(rawScores[key] * 100) / 100));
+    candidateScores[key] = normalized;
+    if (normalized > maxScore) {
+      maxScore = normalized;
+      bestKey = key;
+    }
+  }
+
+  const reasonMap: Record<CandidateKey, string> = {
+    candidate_project: 'gemini-decision-1 판별: 프로젝트 및 작업 목표 정합도 최상위 판정',
+    candidate_routine: 'gemini-decision-1 판별: 현재 시간대 루틴 수행 과제 적합 판정',
+    candidate_pivot: 'gemini-decision-1 판별: 기각 이력 및 취소선 의도 반영 최적 대안 판정',
+    candidate_longterm: 'gemini-decision-1 판별: 과거 확정 노트와의 의미적 연관성 최상위 판정',
+    candidate_definition: 'gemini-decision-1 판별: 개념 정의 및 핵심 요약 일치도 최상위 판정',
+  };
+
+  return {
+    selectedKey: bestKey,
+    winningSentence: candidates[bestKey],
+    confidenceScore: maxScore,
+    reasonNoul: reasonMap[bestKey],
+    candidateScores,
+    scoringEngine: 'gemini-decision-1',
+  };
 }

@@ -15,6 +15,7 @@ import { extractCroppedStrokes, type CroppedImageResult } from './cropExtractor'
 import { recognizeOxGesture, type Point } from './gestureRecognizer';
 import { SpeculativePipeline } from './speculativePipeline';
 import { matchLocalJevContext } from '../jev/localJevMatcher';
+import { getLastInferError } from '../api/inferClient';
 
 export interface CanvasLifecycleCallbacks {
   onCropExtracted?: (crop: CroppedImageResult) => void;
@@ -377,13 +378,15 @@ export class CanvasLifecycleEngine {
               const allKw = this.extractKeywordsList(res.extractedKeywords);
               this.spawnHypothesis(adjustedBbox, performance.now(), formatted, allKw);
             } else if (canSpawn) {
-              this.spawnHypothesis(bbox, performance.now());
+              const errMsg = getLastInferError() ?? 'AI API 키가 연결되지 않았습니다. 환경변수 설정을 확인해 주세요.';
+              this.spawnHypothesis(bbox, performance.now(), errMsg);
             }
           })
           .catch(() => {
             this.isInferring = false;
             if (!this.activeHypothesis || this.activeHypothesis.isRejected) {
-              this.spawnHypothesis(bbox, performance.now());
+              const errMsg = getLastInferError() ?? 'AI API 키가 연결되지 않았습니다. 환경변수 설정을 확인해 주세요.';
+              this.spawnHypothesis(bbox, performance.now(), errMsg);
             }
           });
       } else {
@@ -517,14 +520,16 @@ export class CanvasLifecycleEngine {
                   allKw
                 );
               } else if (!this.activeHypothesis) {
-                // 백엔드 응답 실패 시 목업 가설로 안전 스폰
-                this.spawnHypothesis(cropped.bbox, performance.now());
+                // 백엔드 오류/API 키 미연결 시 목업 대신 명시적 안내 문구 표출
+                const errMsg = getLastInferError() ?? 'AI API 키가 연결되지 않았습니다. 환경변수 설정을 확인해 주세요.';
+                this.spawnHypothesis(cropped.bbox, performance.now(), errMsg);
               }
             })
             .catch(() => {
               this.isInferring = false;
               if (!this.activeHypothesis) {
-                this.spawnHypothesis(cropped.bbox, performance.now());
+                const errMsg = getLastInferError() ?? 'AI API 키가 연결되지 않았습니다. 환경변수 설정을 확인해 주세요.';
+                this.spawnHypothesis(cropped.bbox, performance.now(), errMsg);
               }
             });
         } else {

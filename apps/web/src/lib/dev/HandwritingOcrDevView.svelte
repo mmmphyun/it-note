@@ -9,7 +9,7 @@
     CandidateKey,
   } from '@itnote/shared';
   import { extractCroppedStrokes, type CroppedImageResult } from '../canvas/cropExtractor';
-  import { requestInference } from '../api/inferClient';
+  import { requestInference, getLastInferError } from '../api/inferClient';
 
   const CANDIDATE_LABELS: Record<CandidateKey, string> = {
     candidate_project: '프로젝트 관점',
@@ -227,7 +227,9 @@
       inferDurationMs = Math.round(performance.now() - startTime);
 
       if (!res) {
-        inferError = '서버 응답이 없거나 추론에 실패했습니다. (백엔드 포트 8787 확인)';
+        inferError =
+          getLastInferError() ||
+          '서버 응답이 없거나 AI API 키가 연결되지 않았습니다. (.env 및 컨테이너 확인)';
         return;
       }
       inferResponse = res;

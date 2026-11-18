@@ -4,11 +4,12 @@ services:
     container_name: itnote-demo-app
     ports:
       - "8787:8787"
+    env_file:
+      - path: .env
+        required: false
     environment:
       NODE_ENV: production
       PORT: "8787"
-      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
-      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
       OCR_ENDPOINT_URL: "${OCR_ENDPOINT_URL:-http://ocr:8090/ocr}"
     restart: unless-stopped
 

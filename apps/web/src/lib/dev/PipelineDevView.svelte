@@ -6,7 +6,7 @@
     type InferRequestBody,
     type InferResponseBody,
   } from '@itnote/shared';
-  import { requestInference } from '../api/inferClient';
+  import { requestInference, getLastInferError } from '../api/inferClient';
 
   const CANDIDATE_LABELS: Record<CandidateKey, string> = {
     candidate_project: '프로젝트 관점',
@@ -112,7 +112,9 @@
     try {
       const res = await requestInference(payload);
       if (!res) {
-        errorMsg = '추론 API 응답이 없거나 서버 에러가 발생했습니다. (백엔드 포트 8787 확인)';
+        errorMsg =
+          getLastInferError() ||
+          '추론 API 응답이 없거나 API 키가 연결되지 않았습니다. (백엔드 및 .env 확인)';
         return;
       }
 

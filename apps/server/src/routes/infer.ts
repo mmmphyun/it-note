@@ -21,6 +21,23 @@ inferRoute.post('/', async (c) => {
     return c.json({ error: 'croppedImageBase64 or rawTextInput is required' }, 400);
   }
 
+  if (process.env.NODE_ENV !== 'test') {
+    const hasKey = Boolean(
+      process.env.GEMINI_API_KEY?.trim() ||
+        process.env.GOOGLE_API_KEY?.trim() ||
+        process.env.JEV_API_KEY?.trim()
+    );
+    if (!hasKey) {
+      return c.json(
+        {
+          error:
+            'AI API 키(GEMINI_API_KEY)가 연결되지 않았습니다. .env 설정 및 컨테이너 재기동을 확인해 주세요.',
+        },
+        503
+      );
+    }
+  }
+
   // 인증 세션 기반 사용자 컨텍스트 자동 주입 (직무, 관심사, 성향, 현재 시간표 루틴)
   const sessionId = extractSessionId(c);
   const session = getSession(sessionId);
@@ -55,38 +72,46 @@ inferRoute.post('/', async (c) => {
     };
   }
 
-  // 1. System 1 (Jev/OpenJev 기본 의사결정 및 키워드 추출)
-  const system1Output = await runSystem1Jev(body);
+  try {
+    // 1. System 1 (Jev/OpenJev 기본 의사결정 및 키워드 추출)
+    const system1Output = await runSystem1Jev(body);
 
-  // 2. Generator: 직교 5-Way 후보 가설 문장 풀 생성
-  const candidatePool = await generateCandidateHypothesisPool({
-    decision: system1Output.decision,
-    keywords: system1Output.keywords,
-    request: body,
-  });
+    // 2. Generator: 직교 5-Way 후보 가설 문장 풀 생성
+    const candidatePool = await generateCandidateHypothesisPool({
+      decision: system1Output.decision,
+      keywords: system1Output.keywords,
+      request: body,
+    });
 
-  // 3. Discriminator: Neural Jev Reranker가 맥락 대조 후 최적 1문장 Choice 확정
-  const rerankerResult = await runNeuralJevReranker({
-    candidates: candidatePool,
-    userContext: {
-      persona: body.userContext?.persona,
-      currentRoutine: body.userContext?.currentRoutineState,
-      rejectedHistory: body.rejectedHypotheses,
-    },
-  });
+    // 3. Discriminator: Neural Jev Reranker가 맥락 대조 후 최적 1문장 Choice 확정
+    const rerankerResult = await runNeuralJevReranker({
+      candidates: candidatePool,
+      userContext: {
+        persona: body.userContext?.persona,
+        currentRoutine: body.userContext?.currentRoutineState,
+        rejectedHistory: body.rejectedHypotheses,
+      },
+    });
 
-  const response: InferResponseBody = {
-    jevDecision: system1Output.decision,
-    extractedKeywords: system1Output.keywords,
-    sentence: rerankerResult.winningSentence,
-    candidatePool,
-    rerankerResult: {
-      ...rerankerResult,
+    const response: InferResponseBody = {
+      jevDecision: system1Output.decision,
+      extractedKeywords: system1Output.keywords,
+      sentence: rerankerResult.winningSentence,
+      candidatePool,
+      rerankerResult: {
+        ...rerankerResult,
+        ocrSource: system1Output.ocrSource,
+      },
       ocrSource: system1Output.ocrSource,
-    },
-    ocrSource: system1Output.ocrSource,
-    ocrRawText: system1Output.ocrRawText,
-  };
+      ocrRawText: system1Output.ocrRawText,
+    };
 
-  return c.json(response);
+    return c.json(response);
+  } catch (err) {
+    const msg =
+      err instanceof Error
+        ? err.message
+        : 'AI API 호출에 실패했습니다. API 키 연결 상태를 확인해 주세요.';
+    return c.json({ error: msg }, 502);
+  }
 });

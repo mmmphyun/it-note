@@ -89,38 +89,32 @@ export async function runSystem1Jev(request: InferRequestBody): Promise<System1O
         ocrSource,
         ocrRawText,
       };
-    } catch {
-      // Jev 실패 시 Gemini 또는 Heuristic Fallback
+    } catch (err) {
+      if (!ai) {
+        throw new Error(
+          `Jev API 호출 실패 및 GEMINI_API_KEY 미연결: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
     }
   }
 
   if (ai) {
-    try {
-      const gemRes = await callGeminiStructuredJev(enrichedRequest, ai);
-      return {
-        ...gemRes,
-        decision: {
-          ...gemRes.decision,
-          marginBox: {
-            type: 'box',
-            coordinates: calculateDeterministicMarginBox(enrichedRequest.strokeMetadata?.bbox),
-          },
+    const gemRes = await callGeminiStructuredJev(enrichedRequest, ai);
+    return {
+      ...gemRes,
+      decision: {
+        ...gemRes.decision,
+        marginBox: {
+          type: 'box',
+          coordinates: calculateDeterministicMarginBox(enrichedRequest.strokeMetadata?.bbox),
         },
-        ocrSource,
-        ocrRawText,
-      };
-    } catch (err) {
-      console.error('[System 1 Jev Error]', err instanceof Error ? err.message : err);
-      // Gemini 실패 시 Heuristic Fallback
-    }
+      },
+      ocrSource,
+      ocrRawText,
+    };
   }
 
-  const heuristic = runHeuristicSystem1(enrichedRequest);
-  return {
-    ...heuristic,
-    ocrSource,
-    ocrRawText,
-  };
+  throw new Error('AI API 키(GEMINI_API_KEY)가 연결되지 않았습니다.');
 }
 
 /**
